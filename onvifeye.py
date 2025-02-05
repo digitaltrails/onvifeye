@@ -1,34 +1,35 @@
 #!/usr/bin/python3
 """
-tapowatch: TP-Link Tapo-camera ONVIF event monitor and clip recorder
-====================================================================
+onvifeye: ONVIF event monitor and clip recorder
+===============================================
 
 
 
 Usage:
 ======
 
-        tapowatch [--verbose] [camera-config-file]
+        onvifeye [--verbose] [camera-config-file]
                   [--help | --detailed-help]
 
 Optional arguments:
 -------------------
 
       -h, --help            show this help message and exit
-      --detailed-help       full help in markdown format
+      --detailed-help       full help in Markdown format
 
 Description
 ===========
 
-Monitor a TP-Link Tapo-camera for ONVIF events and record them using RSTP.
+Monitor for camera ONVIF events and record them using RSTP.
 Recording is performed by ffmpeg.
 
-With slight modifications this script would possibly work with other cameras.
+Currently only tested against a TP-Link Tapo-C225.  With slight modifications
+this script will likely work with other cameras.
 
 Config files
 ------------
 
-$HOME/.config/tapowatch/tapowatch.
+$HOME/.config/onvifeye/onvifeye default camera config
 
 
 Prerequisites
@@ -41,8 +42,8 @@ All the following runtime dependencies are likely to be available pre-packaged o
 * onvif-zeep-async  (pip install onvif-zeep-async)
 * ffmpeg-python (pip install ffmpeg-python)
 
-Procno Copyright (C) 2025 Michael Hamilton
-===========================================
+onvifeye Copyright (C) 2025 Michael Hamilton
+=============================================
 
 This program is free software: you can redistribute it and/or modify it
 under the terms of the GNU General Public License as published by the
@@ -73,9 +74,9 @@ from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 from pathlib import Path
 
-log = logging.getLogger('tapowatch')
+log = logging.getLogger('onvifeye')
 
-CAMERA_CONF_FILE = Path.home() / '.config' / 'tapowatch' / 'tapowatch.conf'
+CAMERA_CONF_FILE = Path.home() / '.config' / 'onvifeye' / 'onvifeye.conf'
 
 import ffmpeg
 import httpx
@@ -164,6 +165,8 @@ class NotificationPuller:
                         camera_messages = await self.pullpoint_service.PullMessages(pullpoint_req)
                         if camera_messages and camera_messages['NotificationMessage']:
                             for notification_msg in camera_messages['NotificationMessage']:
+                                if log.isEnabledFor(logging.DEBUG):  # Avoid expensive debugging
+                                    log.debug(f"Notification {notification_msg=}")
                                 data = notification_msg['Message']['_value_1']['Data']
                                 for simple_item in data['SimpleItem']:
                                     name, value = simple_item['Name'], simple_item['Value']
@@ -265,17 +268,23 @@ async def main():
     signal.signal(signal.SIGHUP, exit_handler)
     signal.signal(signal.SIGINT, exit_handler)
 
+    global camera_config
+
     arg_parser = argparse.ArgumentParser(
-        prog='tapowatch',
+        prog='onvifeye',
         description='Monitor a TP-Link Tapo-camera for ONVIF events and record them using RSTP',
-        usage='tapowatch.py [--verbose] [camera-config-file]',
+        usage='onvifeye.py [--verbose] [config-overrides] [camera-config-file]',
         epilog='Copyright Michael Hamilton, GPU GNU General Public License v3.0')
     arg_parser.add_argument('camera_config_file', nargs='?')
     arg_parser.add_argument('-v', '--verbose', action='store_true')  # on/off flag
 
+    for key, value in vars(camera_config).items():
+        arg_parser.add_argument(f'--{key}', type=type(value), required=False)
+
     args_namespace = arg_parser.parse_args()
 
-    global camera_config
+    if args_namespace.verbose:
+        log.setLevel(logging.DEBUG)
 
     if args_namespace.camera_config_file:
         config_file = Path(args_namespace.camera_config_file)
@@ -286,6 +295,8 @@ async def main():
     if not config_file.exists():
         log.warning(f'Created a starter config file {config_file.as_posix()},'
               f' please customise it for your camera.')
+        for arg, value in vars(args_namespace).items:  # initialise from command line args - if any
+            vars(camera_config)[arg] = value
         with open(config_file, 'w') as fp:
             json.dump(camera_config, fp, default=vars, indent=4)
         sys.exit(0)
@@ -293,7 +304,10 @@ async def main():
         log.info(f'Reading config from {config_file.as_posix()}.')
         with open(config_file) as fp:
             camera_config = CameraConfig(**json.load(fp))
-            log.debug(f'{camera_config=}')
+        for arg, value in vars(args_namespace).items():  # override from command line args - if any
+            if value:
+                vars(camera_config)[arg] = value
+        log.debug(f'{vars(camera_config)}')
 
     onvif_cam = ONVIFCamera(
         camera_config.camera_ip_addr,
