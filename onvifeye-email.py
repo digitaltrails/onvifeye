@@ -37,7 +37,7 @@ def send_mail(send_from: str, send_to: List[str],
 
 
 def main():
-    config_file = Path.home() / '.config' / 'onvifeye-email.conf'
+    config_file = Path.home() / '.config' / 'onvifeye' / 'onvifeye-email.conf'
     log.info(f'Reading email config from {config_file.as_posix()}.')
     email_config = None
     with open(config_file) as fp:
@@ -64,4 +64,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-# finally, don't forget to close the connection

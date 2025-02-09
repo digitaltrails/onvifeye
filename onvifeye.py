@@ -94,10 +94,12 @@ EXCEPTION_RETRY_WAIT_SECONDS = 5
 
 CAMERA_ONVIF_WSDL_DIR = imp_resources.files('onvif') / 'wsdl'
 
+CONFIG_DIR = Path.home() / '.config' / 'onvifeye'
+CAMERA_CONFIG_DIR = CONFIG_DIR / Path('camera_conf')
 DATA_DIR = Path.home() / 'onvifeye'
-VIDEO_DIR = Path('videos')
-IMAGE_DIR = Path('images')
-CONF_DIR = Path('conf')
+VIDEO_DIR = DATA_DIR / Path('videos')
+IMAGE_DIR = DATA_DIR / Path('images')
+
 
 class CameraConfig(object):
     def __init__(self,
@@ -229,7 +231,7 @@ class NotificationPuller:
 
 
 def save_video(camera_id: str, rtsp_uri: str, clip_seconds: int, detections: Dict[str, datetime]):
-    save_path = (DATA_DIR / VIDEO_DIR / f'{camera_id}' /
+    save_path = (VIDEO_DIR / f'{camera_id}' /
                  f'{list(detections.values())[0].strftime("%Y%m%d-%H%M%S")}.mp4')
     log.info(f"writing {save_path.as_posix()}")
     save_path.parent.parent.mkdir(exist_ok=True)
@@ -251,7 +253,7 @@ def save_video(camera_id: str, rtsp_uri: str, clip_seconds: int, detections: Dic
 
 
 def save_image(camera_id: str, rtsp_uri: str, detections: Dict[str, datetime]):
-    save_path = (DATA_DIR / IMAGE_DIR / f'{camera_id}' /
+    save_path = (IMAGE_DIR / f'{camera_id}' /
                  f'{list(detections.values())[0].strftime("%Y%m%d-%H%M%S")}.jpg')
     log.info(f'writing {save_path.as_posix()}')
     save_path.parent.parent.mkdir(exist_ok=True)
@@ -457,13 +459,13 @@ async def main():
         log.setLevel(logging.DEBUG)
 
     data_dir = args_namespace.data_dir
-    conf_dir = data_dir / CONF_DIR
-    conf_dir.mkdir(parents=True, exist_ok=True)
+    camera_conf_dir = CAMERA_CONFIG_DIR
+    camera_conf_dir.mkdir(parents=True, exist_ok=True)
 
     camera_configs_list = []
 
     if args_namespace.create_config:
-        save_path = conf_dir / args_namespace.create_config
+        save_path = camera_conf_dir / args_namespace.create_config
         if save_path.suffix != '.conf':
             log.error('Save filename does not end in .conf')
             sys.exit(1)
@@ -476,7 +478,7 @@ async def main():
             json.dump(camera_config, fp, default=vars, indent=4)
         sys.exit(0)
 
-    for config_file in [conf_dir / match for match in glob.glob('*.conf', root_dir=conf_dir)]:
+    for config_file in [camera_conf_dir / match for match in glob.glob('*.conf', root_dir=camera_conf_dir)]:
         if config_file.is_file():
             log.info(f'Reading config from {config_file.as_posix()}.')
             with open(config_file) as fp:
