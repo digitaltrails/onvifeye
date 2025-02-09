@@ -46,13 +46,14 @@ def main():
     if email_config:
         camera_id = sys.argv[1]
         detections = { k: v for k, v in [a.split('/') for a in sys.argv[2:]] }
-        subject = f'Camera {camera_id} detected: ' + ''.join(
-            [ f'{k.removeprefix("Is")}@{v}' for k, v in detections.items()])
+        subject = f'Camera {camera_id} detected ' + ','.join(
+            [ f'{k.removeprefix("Is").lower()} at {v}' for k, v in detections.items()])
         message = (f'Camera: {camera_id}\n\n' +
                    '\n'.join([ f'{k.removeprefix("Is")} detected at {v}'
                               for k, v in detections.items()]))
         files = []
         attachment = Path.home() / 'onvifeye' / 'images' / camera_id / f'{list(detections.values())[0]}.jpg'
+        print(attachment.as_posix())
         for _ in range(10):  # give up after 10 seconds
             if attachment.exists():
                 files.append(attachment)

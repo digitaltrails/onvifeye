@@ -103,6 +103,7 @@ class CameraConfig(object):
     def __init__(self,
                  camera_username = 'tapo-admin',
                  camera_password = '',
+                 camera_id = '',
                  camera_ip_addr = '',
                  camera_onvif_port = '2020',
                  camera_stream_name = 'majorStream',
@@ -114,6 +115,7 @@ class CameraConfig(object):
         super().__init__()
         self.camera_username = camera_username
         self.camera_password = camera_password
+        self.camera_id = camera_id if camera_id else camera_ip_addr
         self.camera_ip_addr = camera_ip_addr
         self.camera_onvif_port = camera_onvif_port
         self.camera_target_events = camera_target_events
@@ -226,8 +228,8 @@ class NotificationPuller:
         self.pullpoint_manager = None
 
 
-def save_video(camera_name:str, rtsp_uri: str, clip_seconds: int, detections: Dict[str, datetime]):
-    save_path = (DATA_DIR / VIDEO_DIR / f'{camera_name}' /
+def save_video(camera_id: str, rtsp_uri: str, clip_seconds: int, detections: Dict[str, datetime]):
+    save_path = (DATA_DIR / VIDEO_DIR / f'{camera_id}' /
                  f'{list(detections.values())[0].strftime("%Y%m%d-%H%M%S")}.mp4')
     log.info(f"writing {save_path.as_posix()}")
     save_path.parent.parent.mkdir(exist_ok=True)
@@ -248,8 +250,8 @@ def save_video(camera_name:str, rtsp_uri: str, clip_seconds: int, detections: Di
     log.info(f"closed {save_path.as_posix()}")
 
 
-def save_image(camera_name:str, rtsp_uri: str, detections: Dict[str, datetime]):
-    save_path = (DATA_DIR / IMAGE_DIR / f'{camera_name}' /
+def save_image(camera_id: str, rtsp_uri: str, detections: Dict[str, datetime]):
+    save_path = (DATA_DIR / IMAGE_DIR / f'{camera_id}' /
                  f'{list(detections.values())[0].strftime("%Y%m%d-%H%M%S")}.jpg')
     log.info(f'writing {save_path.as_posix()}')
     save_path.parent.parent.mkdir(exist_ok=True)
@@ -333,7 +335,7 @@ class VideoWriter(EventHandler):
                                 with ProcessPoolExecutor() as pool:
                                     await loop.run_in_executor(
                                         pool,
-                                        partial(save_video, self.target_camera.onvif.host,
+                                        partial(save_video, self.target_camera.config.camera_id,
                                                 rtsp_uri, self.clip_seconds, relevant_detections))
                             self.mark_as_handled(relevant_detections)  # update
                         await asyncio.sleep(0.1)
@@ -366,7 +368,7 @@ class ImageWriter(EventHandler):
                                 with ProcessPoolExecutor() as pool:
                                     await loop.run_in_executor(
                                         pool,
-                                        partial(save_image, self.target_camera.onvif.host, rtsp_uri,
+                                        partial(save_image, self.target_camera.config.camera_id, rtsp_uri,
                                                 relevant_detections))
                             self.mark_as_handled(relevant_detections)
                         await asyncio.sleep(0.1)
@@ -397,7 +399,7 @@ class EventExecHandler(EventHandler):
                             await loop.run_in_executor(
                                 pool,
                                 partial(execute_external_handler, self.handler_exe,
-                                        self.target_camera.config.camera_ip_addr,
+                                        self.target_camera.config.camera_id,
                                         relevant_detections))
                         else:
                             log.critical(f'Event executable {exe.as_posix()} is not runnable.')
