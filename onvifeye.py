@@ -6,7 +6,7 @@ onvifeye: ONVIF event monitor and clip recorder
 Usage:
 ======
 
-        onvifeye [--verbose] [--create] [camera-config-file]
+        onvifeye [--verbose] [--create camera-config-file.conf]
                   [--help | --detailed-help]
 
 Optional arguments:
@@ -62,26 +62,22 @@ with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 import argparse
 import asyncio
+import glob
 import json
 import logging
 import os
 import signal
 import sys
-from datetime import datetime, timedelta
-from time import time
 from abc import abstractmethod
 from concurrent.futures import ProcessPoolExecutor
+from datetime import datetime, timedelta
 from functools import partial
 from pathlib import Path
+from subprocess import Popen
 from typing import Dict
 
 from wsdiscovery import Scope, QName
 from wsdiscovery.discovery import ThreadedWSDiscovery as WSDiscovery
-
-log = logging.getLogger('onvifeye')
-
-CAMERA_CONF_FILE = Path.home() / '.config' / 'onvifeye' / 'onvifeye.conf'
-
 import ffmpeg
 import httpx
 from onvif import ONVIFCamera, ONVIFService, ONVIFError
@@ -89,8 +85,7 @@ from importlib import resources as imp_resources
 from urllib.parse import urlparse, quote
 from onvif.managers import PullPointManager
 
-import smtplib
-from email.mime.text import MIMEText
+log = logging.getLogger('onvifeye')
 
 os.environ['OPENCV_FFMPEG_LOGLEVEL'] = '8'
 logging.getLogger("httpx").setLevel(logging.CRITICAL)
@@ -99,13 +94,23 @@ EXCEPTION_RETRY_WAIT_SECONDS = 5
 
 CAMERA_ONVIF_WSDL_DIR = imp_resources.files('onvif') / 'wsdl'
 
+DATA_DIR = Path.home() / 'onvifeye'
+VIDEO_DIR = Path('videos')
+IMAGE_DIR = Path('images')
+CONF_DIR = Path('conf')
+
 class CameraConfig(object):
-    def __init__(self, camera_username = 'tapo-admin', camera_password = '',
-                 camera_ip_addr = '', camera_onvif_port = '2020',
+    def __init__(self,
+                 camera_username = 'tapo-admin',
+                 camera_password = '',
+                 camera_ip_addr = '',
+                 camera_onvif_port = '2020',
                  camera_stream_name = 'majorStream',
                  camera_stills_stream_name = 'jpegStream',
                  camera_clip_seconds = 30,
-                 camera_target_events = ('IsPeople', 'IsCar')):
+                 camera_target_events = ('IsPeople', 'IsCar'),
+                 camera_event_exec = '',
+                 camera_save_folder = DATA_DIR.as_posix()):
         super().__init__()
         self.camera_username = camera_username
         self.camera_password = camera_password
@@ -115,8 +120,9 @@ class CameraConfig(object):
         self.camera_stream_name = camera_stream_name
         self.camera_stills_stream_name = camera_stills_stream_name
         self.camera_clip_seconds = camera_clip_seconds
+        self.camera_event_exec = camera_event_exec
+        self.camera_save_folder = camera_save_folder
 
-camera_config = CameraConfig()
 
 # https://stackoverflow.com/a/75060902/609575
 def uri_add_authentication(url, username, password):
@@ -130,9 +136,15 @@ def uri_add_authentication(url, username, password):
 
 class TargetCamera:
 
-    def __init__(self, onvif_camera: ONVIFCamera):
+    def __init__(self, camera_config: CameraConfig):
         super().__init__()
-        self.onvif = onvif_camera
+        self.config = camera_config
+        self.onvif = ONVIFCamera(
+            camera_config.camera_ip_addr,
+            camera_config.camera_onvif_port,
+            camera_config.camera_username,
+            camera_config.camera_password,
+            CAMERA_ONVIF_WSDL_DIR)
         self.detections: Dict[str, datetime] = {}
 
 
@@ -215,7 +227,7 @@ class NotificationPuller:
 
 
 def save_video(camera_name:str, rtsp_uri: str, clip_seconds: int, detections: Dict[str, datetime]):
-    save_path = (Path.home() / 'onvif-videos' / f'{camera_name}' /
+    save_path = (DATA_DIR / VIDEO_DIR / f'{camera_name}' /
                  f'{list(detections.values())[0].strftime("%Y%m%d-%H%M%S")}.mp4')
     log.info(f"writing {save_path.as_posix()}")
     save_path.parent.parent.mkdir(exist_ok=True)
@@ -237,7 +249,7 @@ def save_video(camera_name:str, rtsp_uri: str, clip_seconds: int, detections: Di
 
 
 def save_image(camera_name:str, rtsp_uri: str, detections: Dict[str, datetime]):
-    save_path = (Path.home() / 'onvif-images' / f'{camera_name}' /
+    save_path = (DATA_DIR / IMAGE_DIR / f'{camera_name}' /
                  f'{list(detections.values())[0].strftime("%Y%m%d-%H%M%S")}.jpg')
     log.info(f'writing {save_path.as_posix()}')
     save_path.parent.parent.mkdir(exist_ok=True)
@@ -257,8 +269,9 @@ def save_image(camera_name:str, rtsp_uri: str, detections: Dict[str, datetime]):
     log.info(f'closed {save_path.as_posix()}')
 
 
-def execute_external_handler(handler_exe: Path, relevant_detections: Dict[str, datetime]):
-    pass
+def execute_external_handler(handler_exe: Path, camera_id, relevant_detections: Dict[str, datetime]):
+    Popen([handler_exe.as_posix(), camera_id,] + [f'{k}/{dt.strftime("%Y%m%d-%H%M%S")}'
+                                        for k, dt in relevant_detections.items()])
 
 class EventHandler:
 
@@ -314,7 +327,7 @@ class VideoWriter(EventHandler):
                     while not self.stop_requested:
                         if relevant_detections := {event: etime
                                                    for event, etime in self.target_camera.detections.items()
-                                                   if event in camera_config.camera_target_events}:
+                                                   if event in self.target_camera.config.camera_target_events}:
                             loop = asyncio.get_running_loop()
                             if not self.has_been_handled(relevant_detections):
                                 with ProcessPoolExecutor() as pool:
@@ -347,7 +360,7 @@ class ImageWriter(EventHandler):
                     while not self.stop_requested:
                         if relevant_detections := {event: etime
                                                    for event, etime in self.target_camera.detections.items()
-                                                   if event in camera_config.camera_target_events}:
+                                                   if event in self.target_camera.config.camera_target_events}:
                             loop = asyncio.get_running_loop()
                             if not self.has_been_handled(relevant_detections):
                                 with ProcessPoolExecutor() as pool:
@@ -375,12 +388,20 @@ class EventExecHandler(EventHandler):
         while not self.stop_requested:
             if relevant_detections := {event: etime
                                        for event, etime in self.target_camera.detections.items()
-                                       if event in camera_config.camera_target_events}:
-                loop = asyncio.get_running_loop()
-                with ProcessPoolExecutor() as pool:
-                    await loop.run_in_executor(
-                        pool,
-                        partial(execute_external_handler, self.handler_exe, relevant_detections))
+                                       if event in self.target_camera.config.camera_target_events}:
+                if not self.has_been_handled(relevant_detections):
+                    loop = asyncio.get_running_loop()
+                    with ProcessPoolExecutor() as pool:
+                        exe = self.handler_exe
+                        if os.path.exists(exe) and os.access(exe, os.F_OK | os.X_OK) and not os.path.isdir(exe):
+                            await loop.run_in_executor(
+                                pool,
+                                partial(execute_external_handler, self.handler_exe,
+                                        self.target_camera.config.camera_ip_addr,
+                                        relevant_detections))
+                        else:
+                            log.critical(f'Event executable {exe.as_posix()} is not runnable.')
+                    self.mark_as_handled(relevant_detections)
             await asyncio.sleep(0.1)
 
 
@@ -412,80 +433,71 @@ async def main():
     signal.signal(signal.SIGHUP, exit_handler)
     signal.signal(signal.SIGINT, exit_handler)
 
-    global camera_config
+    global data_dir
 
     arg_parser = argparse.ArgumentParser(
         prog='onvifeye',
         description='Monitor a TP-Link Tapo-camera for ONVIF events and record them using RSTP',
-        usage='onvifeye.py [--verbose] [config-overrides] [camera-config-file]',
+        usage='onvifeye.py [--verbose] [config-overrides]',
         epilog='Copyright Michael Hamilton, GPU GNU General Public License v3.0')
-    arg_parser.add_argument('camera_config_files', nargs='+')
-    arg_parser.add_argument('-c', '--create-config', type=Path, help='create a new config file from arguments')
+    arg_parser.add_argument('-c', '--create-config', type=Path,
+                            help='create a new camera config file from arguments')
     arg_parser.add_argument('-v', '--verbose', action='store_true')  # on/off flag
-    arg_parser.add_argument('-e', '--event-exec', type=Path, help='on event execute program' )
+    arg_parser.add_argument('-d', '--data-dir', type=Path, default=DATA_DIR)
 
-    for key, value in vars(camera_config).items():
-        arg_parser.add_argument(f'--{key}', type=type(value), required=False)
+    for key, value in vars(CameraConfig()).items():
+        arg_parser.add_argument(f'--{key.replace("_", "-")}', type=type(value), required=False)
 
     args_namespace = arg_parser.parse_args()
+    print(args_namespace)
 
     if args_namespace.verbose:
         log.setLevel(logging.DEBUG)
 
+    data_dir = args_namespace.data_dir
+    conf_dir = data_dir / CONF_DIR
+    conf_dir.mkdir(parents=True, exist_ok=True)
+
     camera_configs_list = []
 
-    if args_namespace.camera_config_files:
-        for config_filename in args_namespace.camera_config_files:
-            config_file = Path(config_filename)
+    if args_namespace.create_config:
+        save_path = conf_dir / args_namespace.create_config
+        if save_path.suffix != '.conf':
+            log.error('Save filename does not end in .conf')
+            sys.exit(1)
+        log.warning(f'Creating config file {save_path.as_posix()} and exiting.'
+                    f' Please check it, further customise it for your camera, then restart.')
+        camera_config = CameraConfig()
+        for arg, value in vars(camera_config).items():  # initialise from command line args - if any
+            vars(camera_config)[arg] = value
+        with open(save_path, 'w') as fp:
+            json.dump(camera_config, fp, default=vars, indent=4)
+        sys.exit(0)
+
+    for config_file in [conf_dir / match for match in glob.glob('*.conf', root_dir=conf_dir)]:
+        if config_file.is_file():
             log.info(f'Reading config from {config_file.as_posix()}.')
             with open(config_file) as fp:
-                camera_config = CameraConfig(**json.load(fp))
+                camera_config = CameraConfig(**json.load(fp, strict=False))
             for arg, value in vars(args_namespace).items():  # override from command line args - if any
-                if arg != 'camera_config_files' and value:
+                if value:
                     print(f'{arg=}{value=}')
-                    parts = value.split(':')  # Syntax is ip_addr:value or value
-                    ip_addr, value = [None, parts[1]] if len(parts) == 1 else parts
-                    if ip_addr is None or ip_addr == camera_config.camera_ip_addr:
-                        log.warning(f'Overriding {config_filename} {arg} with command line value.')
-                        vars(camera_config)[arg] = value
+                    log.warning(f'Overriding {config_file.as_posix()} {arg} with command line value.')
+                    vars(camera_config)[arg] = value
+
             log.debug(f'{vars(camera_config)}')
             camera_configs_list.append(camera_config)
-    # else:
-    #     CAMERA_CONF_FILE.parent.mkdir(exist_ok=True)
-    #     config_file = CAMERA_CONF_FILE
 
-
-
-    # if not config_file.exists():
-    #     log.warning(f'Created a starter config file {config_file.as_posix()},'
-    #           f' please customise it for your camera.')
-    #     for arg, value in vars(args_namespace).items:  # initialise from command line args - if any
-    #         vars(camera_config)[arg] = value
-    #     with open(config_file, 'w') as fp:
-    #         json.dump(camera_config, fp, default=vars, indent=4)
-    #     sys.exit(0)
-    # else:
-    #     log.info(f'Reading config from {config_file.as_posix()}.')
-    #     with open(config_file) as fp:
-    #         camera_config = CameraConfig(**json.load(fp))
-    #     for arg, value in vars(args_namespace).items():  # override from command line args - if any
-    #         if value:
-    #             vars(camera_config)[arg] = value
-    #     log.debug(f'{vars(camera_config)}')
+    if not camera_configs_list:
+        command_line_config = CameraConfig()
+        for arg, value in vars(args_namespace).items():  # override from command line args - if any
+            if value:
+                vars(camera_config)[arg] = value
+        camera_configs_list.append(command_line_config)
 
     target_camera_list = []
-
-
-
     for camera_config in camera_configs_list:
-        target_camera = TargetCamera(
-            ONVIFCamera(
-                camera_config.camera_ip_addr,
-                camera_config.camera_onvif_port,
-                camera_config.camera_username,
-                camera_config.camera_password,
-                CAMERA_ONVIF_WSDL_DIR
-            ))
+        target_camera = TargetCamera(camera_config)
         target_camera_list.append(target_camera)
 
 
@@ -502,6 +514,10 @@ async def main():
                                            stream_name=camera_config.camera_stream_name,
                                            clip_seconds=camera_config.camera_clip_seconds)
                 _ = watch_task_group.create_task(video_writer.handle_events())
+            if camera_config.camera_event_exec:
+                event_exec_runner = EventExecHandler(target_camera, Path(camera_config.camera_event_exec)
+                                           )
+                _ = watch_task_group.create_task(event_exec_runner.handle_events())
 
 
     await watch_task_group
