@@ -11,8 +11,7 @@ from email.utils import formatdate
 from pathlib import Path
 from typing import List
 
-log = logging.getLogger('onvifeye')
-
+log = logging.getLogger('onvifemail')
 
 def send_mail(send_from: str, send_to: List[str],
               subject: str, message: str, files: List[Path],
@@ -43,15 +42,17 @@ def main():
     email_config = None
     with open(config_file) as fp:
         email_config = json.load(fp, strict=False)
-        print(email_config)
+        log.info(email_config)
     if email_config:
-        camera_ip = sys.argv[1]
+        camera_id = sys.argv[1]
         detections = { k: v for k, v in [a.split('/') for a in sys.argv[2:]] }
-        subject = 'Camera detections: ' + ''.join(
+        subject = f'Camera {camera_id} detected: ' + ''.join(
             [ f'{k.removeprefix("Is")}@{v}' for k, v in detections.items()])
-        message = '\n'.join([ f'{k.removeprefix("Is")} detected at {v}' for k, v in detections.items()])
+        message = (f'Camera: {camera_id}\n\n' +
+                   '\n'.join([ f'{k.removeprefix("Is")} detected at {v}'
+                              for k, v in detections.items()]))
         files = []
-        attachment = Path.home() / 'onvifeye' / 'images' / camera_ip / f'{list(detections.values())[0]}.jpg'
+        attachment = Path.home() / 'onvifeye' / 'images' / camera_id / f'{list(detections.values())[0]}.jpg'
         for _ in range(10):  # give up after 10 seconds
             if attachment.exists():
                 files.append(attachment)
