@@ -1,7 +1,9 @@
 onvifeye: ONVIF event monitor and clip recorder
 ===============================================
 
-Onvifeye is a camera ONVIF python client written targeting the TP-Link Tapo-C225.
+Onvifeye is a camera ONVIF python client that targets the TP-Link Tapo-C225.
+THe script may well work with other cameras, but might require modification
+to cope with camera specific event data.
 
 Onvifeye includes the following functions:
 
@@ -28,7 +30,11 @@ Beyond standard Python3, the following additional libraries are required:
 Description
 -----------
 
-Describe how an event starts and ends.
+Describe how an event starts and ends: for example, onvifeye counts
+an event that includes _IsPerson=True_ as continuing as long as immediately 
+following events also include _IsPerson=True_. This eliminates repeat 
+reporting of single incidents. If there are no following events, the
+_IsPerson=True_ event expires in 60 seconds.
 
 Getting Started
 ---------------
@@ -75,6 +81,7 @@ Sample config files
     "camera_username": "cam-admin",
     "camera_password": "SuperSecretPassword",
     "camera_id": "c225-1",
+    "camera_model": "c225",
     "camera_ip_addr": "10.0.0.128",
     "camera_onvif_port": "2020",
     "camera_stream_name": "mainStream",
@@ -100,6 +107,11 @@ Sample config files
 }
 ```
 
+Issues
+------
+
+A camera going offline can cause the script to stop working, I need
+to track down and handle any exceptions that occur.
 
 Authors
 -------

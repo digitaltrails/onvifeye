@@ -76,8 +76,8 @@ from pathlib import Path
 from subprocess import Popen
 from typing import Dict
 
-from wsdiscovery import Scope, QName
-from wsdiscovery.discovery import ThreadedWSDiscovery as WSDiscovery
+# from wsdiscovery import Scope, QName
+# from wsdiscovery.discovery import ThreadedWSDiscovery as WSDiscovery
 import ffmpeg
 import httpx
 from onvif import ONVIFCamera, ONVIFService, ONVIFError
@@ -106,6 +106,7 @@ class CameraConfig(object):
                  camera_username = 'tapo-admin',
                  camera_password = '',
                  camera_id = '',
+                 camera_model = '',
                  camera_ip_addr = '',
                  camera_onvif_port = '2020',
                  camera_stream_name = 'majorStream',
@@ -118,6 +119,7 @@ class CameraConfig(object):
         self.camera_username = camera_username
         self.camera_password = camera_password
         self.camera_id = camera_id if camera_id else camera_ip_addr
+        self.camera_model = camera_model  # for future use
         self.camera_ip_addr = camera_ip_addr
         self.camera_onvif_port = camera_onvif_port
         self.camera_target_events = camera_target_events
@@ -198,11 +200,11 @@ class NotificationPuller:
                                     log.debug(f"Notification {notification_msg=}")
                                 data = notification_msg['Message']['_value_1']['Data']
                                 for simple_item in data['SimpleItem']:
-                                    name, value = simple_item['Name'], simple_item['Value']
-                                    if value == "true":
-                                        if name not in self.target_camera.detections:
-                                            self.target_camera.detections[name] = datetime.now()
-                                            log.info(f'added {name} to {self.target_camera.detections=}')
+                                    type_of_detection, is_happening = simple_item['Name'], simple_item['Value']
+                                    if is_happening == "true":
+                                        if type_of_detection not in self.target_camera.detections:
+                                            self.target_camera.detections[type_of_detection] = datetime.now()
+                                            log.info(f'added {type_of_detection} to {self.target_camera.detections=}')
                         else:
                             await asyncio.sleep(0.1)
                     except httpx.RemoteProtocolError as nothing_ready:
@@ -210,12 +212,12 @@ class NotificationPuller:
                         pass
                     finally:
                         now = datetime.now()
-                        for name, first_seen_at in [
+                        for type_of_detection, first_seen_at in [
                             (name, first_seen_at)
                             for name, first_seen_at in self.target_camera.detections.items()
                             if (now - first_seen_at).seconds > self.detection_expiry_seconds]:
-                                del self.target_camera.detections[name]
-                                log.info(f"expire '{name}': {first_seen_at} -> {self.target_camera.detections=}")
+                                del self.target_camera.detections[type_of_detection]
+                                log.info(f"expire '{type_of_detection}': {first_seen_at} -> {self.target_camera.detections=}")
             except Exception as e:
                 log.warning(f'Pull exception, will try again. [{repr(e)}]')
             finally:
@@ -231,6 +233,7 @@ class NotificationPuller:
 
 
 def save_video(camera_id: str, rtsp_uri: str, clip_seconds: int, detections: Dict[str, datetime]):
+    VIDEO_DIR.mkdir(parents=True, exist_ok=True)
     save_path = (VIDEO_DIR / f'{camera_id}' /
                  f'{list(detections.values())[0].strftime("%Y%m%d-%H%M%S")}.mp4')
     log.info(f"writing {save_path.as_posix()}")
@@ -253,6 +256,7 @@ def save_video(camera_id: str, rtsp_uri: str, clip_seconds: int, detections: Dic
 
 
 def save_image(camera_id: str, rtsp_uri: str, detections: Dict[str, datetime]):
+    IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     save_path = (IMAGE_DIR / f'{camera_id}' /
                  f'{list(detections.values())[0].strftime("%Y%m%d-%H%M%S")}.jpg')
     log.info(f'writing {save_path.as_posix()}')
@@ -262,9 +266,9 @@ def save_image(camera_id: str, rtsp_uri: str, detections: Dict[str, datetime]):
         log.error(f'Skipping save. Save file already exists: {save_path}')
         return
     try:
-        out, err = ffmpeg.input(rtsp_uri, loglevel=24).output(
-            filename=save_path.as_posix(), frames=1,
-            loglevel=32).run()#(capture_stdout=True, capture_stderr=True)
+        out, err = ffmpeg.input(rtsp_uri, loglevel=8).output(
+            filename=save_path.as_posix(), vframes=1,
+            loglevel=8).run()#(capture_stdout=True, capture_stderr=True)
         if out or err:
             log.error(f"{err} {err.stdout.decode('utf8')=} {err.stderr.decode('utf8')=}")
     except ffmpeg.Error as e:
@@ -409,24 +413,25 @@ class EventExecHandler(EventHandler):
             await asyncio.sleep(0.1)
 
 
-async def discover_devices():
-    wsd = WSDiscovery(ttl=4, relates_to=True)
-    wsd.start()
-    services = wsd.searchServices(types=[
-                QName(
-                    "http://www.onvif.org/ver10/network/wsdl",
-                    "NetworkVideoTransmitter",
-                    "dp0",
-                )], scopes=[Scope('onvif://www.onvif.org/Profile/Streaming')])
-    for service in services:
-        print(service.getEPR() + ":" + service.getXAddrs()[0])
-    wsd.stop()
-    print('done devices')
-    #sys.exit(0)
+# async def discover_devices():
+#     # for some reason this does not work - might be an issue with my network
+#     wsd = WSDiscovery(ttl=4, relates_to=True)
+#     wsd.start()
+#     services = wsd.searchServices(types=[
+#                 QName(
+#                     "http://www.onvif.org/ver10/network/wsdl",
+#                     "NetworkVideoTransmitter",
+#                     "dp0",
+#                 )], scopes=[Scope('onvif://www.onvif.org/Profile/Streaming')])
+#     for service in services:
+#         print(service.getEPR() + ":" + service.getXAddrs()[0])
+#     wsd.stop()
+#     print('done devices')
+#     #sys.exit(0)
 
 async def main():
 
-    await discover_devices()
+
 
     def exit_handler(signum, frame):
         log.warning(f'{signal.strsignal(signum)} signalled - exiting')
@@ -437,8 +442,6 @@ async def main():
     signal.signal(signal.SIGHUP, exit_handler)
     signal.signal(signal.SIGINT, exit_handler)
 
-    global data_dir
-
     arg_parser = argparse.ArgumentParser(
         prog='onvifeye',
         description='Monitor a TP-Link Tapo-camera for ONVIF events and record them using RSTP',
@@ -447,7 +450,6 @@ async def main():
     arg_parser.add_argument('-c', '--create-config', type=Path,
                             help='create a new camera config file from arguments')
     arg_parser.add_argument('-v', '--verbose', action='store_true')  # on/off flag
-    arg_parser.add_argument('-d', '--data-dir', type=Path, default=DATA_DIR)
 
     for key, value in vars(CameraConfig()).items():
         arg_parser.add_argument(f'--{key.replace("_", "-")}', type=type(value), required=False)
@@ -458,9 +460,10 @@ async def main():
     if args_namespace.verbose:
         log.setLevel(logging.DEBUG)
 
-    data_dir = args_namespace.data_dir
     camera_conf_dir = CAMERA_CONFIG_DIR
     camera_conf_dir.mkdir(parents=True, exist_ok=True)
+
+    # await discover_devices()  # this doesn't work (at least not on my network).
 
     camera_configs_list = []
 
@@ -486,7 +489,7 @@ async def main():
             for arg, value in vars(args_namespace).items():  # override from command line args - if any
                 if value:
                     print(f'{arg=}{value=}')
-                    log.warning(f'Overriding {config_file.as_posix()} {arg} with command line value.')
+                    log.warning(f'Overriding {config_file.as_posix()} {arg} with command line value {value}.')
                     vars(camera_config)[arg] = value
 
             log.debug(f'{vars(camera_config)}')
