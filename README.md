@@ -55,35 +55,39 @@ python script and check that the dependencies described above are in place.
 If you want to events to send emails you'll also need the ``onvifemail.py``
 script.
 
-Executing the program
----------------------
+### Installing the program
+
+Depending on you Linux distribution, the required dependencies may not be
+available via your disto's normall installation mechanism.  You might have
+to use _pip_ to install them locally in a python-virtual environment under
+a normal user account, for example:
 
 ```commandline
-python3 onvifeye.py --create c225-1.conf
-python3 onvifeye.py --create c225-2.conf
-# edit the created config files in $HOME/.config/onvifeye/cameras/*.conf
+# Create a python virtual environment, for example:
 
-# run with the configured config files:
-python3 onvifeye.py
-
-# After any event, check:
-ls $HOME/onvifeye/images $HOME/onvifeye/videos
-
-# To enable emails
-# edit $HOME/.config/onvifeye/onvifeye-email.conf
-
-chmod u+x /where/ever/you/put/onvifeye-email.py
-# edit a camera config file and set camera_event_exec to /where/ever/you/put/onvifeye-email.py
-
-# Restart
-python3 onvifeye.py
+python3 -m venv ~/onvif-venv
+~/onvif-venv/bin/pip3 install onvif-zeep-async
+~/onvif-venv/bin/pip3 install ffmpeg-python
+ install ffmpeg-python
 ```
 
-Sample config files
--------------------
+### Executing the program
 
-#### Camera config 
-`$HOME/.config/onvifeye/cameras/c225-1.conf`
+No special permissions are required, just use a normal account.
+Assuming you're using the python venv created above, the script
+can be setup and run as follows:
+
+First create some template config files for one or more cameras:
+
+```commandline
+# Create starter config files for any cameras you wish to monitor:
+~/onvif-venv/bin/python3 onvifeye.py --create c225-1.conf
+~/onvif-venv/bin/python3 onvifeye.py --create c225-2.conf
+```
+
+Edit the created config files in `$HOME/.config/onvifeye/cameras/*.conf`,
+set the camera access username, password, ip-address, and any other
+properties that differ from the defaults, for example:
 
 ```commandline
 {
@@ -104,9 +108,27 @@ Sample config files
 }
 ```
 
-#### onvifeye-email config 
-`$HOME/.config/onvifeye/onvifeye-email.conf`
-```commandline
+Run with the configured config files, for example:
+
+```
+
+~/onvif-venv/bin/python3 onvifeye.py
+
+```
+If you need to stop the script, use control-C (sigterm) or sighup.
+
+Create some events by moving around in front of the camera. After any event,
+check for new videos or images:
+
+```
+ls -lart $HOME/onvifeye/images $HOME/onvifeye/videos
+ls -lart $HOME/onvifeye/images $HOME/onvifeye/images
+```
+
+To enable SMTP emails, create and edit `$HOME/.config/onvifeye/onvifeye-email.conf`,
+for example:
+```
+cat > $HOME/.config/onvifeye/onvifeye-email.conf: <<EOF
 {
     "send_from": "cam-admin",
     "send_to": [ "me@somewhere.blah" ],
@@ -114,13 +136,46 @@ Sample config files
     "username": "memyself",
     "password": "somethinghardtoguess"
 }
+EOF
+```
+Make the email script executable and check its location is properly set in
+the camera config file (see example camera config file above), then start
+or restart the main script:
+
+```
+# set permissions:
+chmod u+x /where/ever/you/put/onvifeye-email.py
+
+# Restart
+~/onvif-venv/bin/python3 onvifeye.py
+```
+
+
+The email script can also be tested stand alone, for example:
+```commandline
+# Create a dummy image for a date-time
+touch ~/onvifeye/images/10.36.184.128/20250209-134428.jpg
+
+# Invoke the script, pass it a camera-id and the detection/date-time from above:
+# (the id can be anything you like, it doesn't have to be an actual camera id)
+python3 ~/Projects/onvifeye/onvifeye-email.py DummyCameraId IsPerson/20250209-134428
 ```
 
 Issues
 ------
 
-A camera going offline can cause the script to stop working, I need
+A camera going offline may cause the script to stop working, I need
 to track down and handle any exceptions that occur.
+
+Something from ffmpeg seems to write to the tty in a way that makes it
+unusable to the point where, after terminating the script, I have to log 
+out of the terminal/ssh-session and log back in. I need to track this
+down and prevent it.
+
+I expect that cameras other than the C225 may report detection events 
+differently.  The code needs to be enhanced to abstract/separate the 
+detection-parsing so it is determined by camera-model.
+
 
 Authors
 -------
@@ -157,3 +212,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>.
 * I learnt how to use onvif-zeep-async by studying Peter Stamp's 
   [TAPO-camera-ONVIF-RTSP-and-AI-Object-Recognition](
   https://github.com/peterstamps/TAPO-camera-ONVIF-RTSP-and-AI-Object-Recognition).
+* Thanks go out to Graham Huang, TP-Link Support, and Solla-topee, 
+  TP-Link Community Support for responding so rapidy to my enquiries
+  concerning missing ONVIF detection data. A 48-hour response with new
+  firmware - quite remarkable.
