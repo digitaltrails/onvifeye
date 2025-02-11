@@ -126,9 +126,8 @@ ls -lart $HOME/onvifeye/images $HOME/onvifeye/images
 ```
 
 To enable SMTP emails, create and edit `$HOME/.config/onvifeye/onvifeye-email.conf`,
-for example:
-```
-cat > $HOME/.config/onvifeye/onvifeye-email.conf: <<EOF
+the contents should resemble:
+```commandline
 {
     "send_from": "cam-admin",
     "send_to": [ "me@somewhere.blah" ],
@@ -136,8 +135,8 @@ cat > $HOME/.config/onvifeye/onvifeye-email.conf: <<EOF
     "username": "memyself",
     "password": "somethinghardtoguess"
 }
-EOF
 ```
+
 Make the email script executable and check its location is properly set in
 the camera config file (see example camera config file above), then start
 or restart the main script:
@@ -176,6 +175,8 @@ I expect that cameras other than the C225 may report detection events
 differently.  The code needs to be enhanced to abstract/separate the 
 detection-parsing so it is determined by camera-model.
 
+The json parsing of config files doesn't produce very friendly error
+messages when the syntax is wrong.
 
 Authors
 -------
