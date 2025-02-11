@@ -76,8 +76,11 @@ from pathlib import Path
 from subprocess import Popen
 from typing import Dict
 
-# from wsdiscovery import Scope, QName
-# from wsdiscovery.discovery import ThreadedWSDiscovery as WSDiscovery
+try_ws_discovery = False
+if try_ws_discovery:
+    from wsdiscovery import Scope, QName
+    from wsdiscovery.discovery import ThreadedWSDiscovery as WSDiscovery
+
 import ffmpeg
 import httpx
 from onvif import ONVIFCamera, ONVIFService, ONVIFError
@@ -221,7 +224,11 @@ class NotificationPuller:
             except Exception as e:
                 log.warning(f'Pull exception, will try again. [{repr(e)}]')
             finally:
-                await self.disconnect()
+                try:
+                    await self.disconnect()
+                except httpx.ConnectTimeout as e2:
+                    log.warning(f'Pull exception, could not disconnect - ignoring. [{repr(e)}]')
+
 
     async def disconnect(self):
         if self.pullpoint_service:
@@ -266,7 +273,7 @@ def save_image(camera_id: str, rtsp_uri: str, detections: Dict[str, datetime]):
         log.error(f'Skipping save. Save file already exists: {save_path}')
         return
     try:
-        out, err = ffmpeg.input(rtsp_uri, loglevel=8).output(
+        out, err = ffmpeg.input(rtsp_uri, loglevel=32).output(
             filename=save_path.as_posix(), vframes=1,
             loglevel=8).run()#(capture_stdout=True, capture_stderr=True)
         if out or err:
@@ -413,25 +420,26 @@ class EventExecHandler(EventHandler):
             await asyncio.sleep(0.1)
 
 
-# async def discover_devices():
-#     # for some reason this does not work - might be an issue with my network
-#     wsd = WSDiscovery(ttl=4, relates_to=True)
-#     wsd.start()
-#     services = wsd.searchServices(types=[
-#                 QName(
-#                     "http://www.onvif.org/ver10/network/wsdl",
-#                     "NetworkVideoTransmitter",
-#                     "dp0",
-#                 )], scopes=[Scope('onvif://www.onvif.org/Profile/Streaming')])
-#     for service in services:
-#         print(service.getEPR() + ":" + service.getXAddrs()[0])
-#     wsd.stop()
-#     print('done devices')
-#     #sys.exit(0)
+async def discover_devices():
+    if try_ws_discovery:
+        # for some reason this does not work - might be an issue with my network
+        wsd = WSDiscovery(ttl=4, relates_to=True)
+        wsd.start()
+        services = wsd.searchServices(types=[
+                    QName(
+                        "http://www.onvif.org/ver10/network/wsdl",
+                        "NetworkVideoTransmitter",
+                        "dp0",
+                    )], scopes=[Scope('onvif://www.onvif.org/Profile/Streaming')])
+        for service in services:
+            log.info(service.getEPR() + ":" + service.getXAddrs()[0])
+        wsd.stop()
+        log.info('done device device discovery')
+        #sys.exit(0)
+    else:
+        pass
 
 async def main():
-
-
 
     def exit_handler(signum, frame):
         log.warning(f'{signal.strsignal(signum)} signalled - exiting')
@@ -463,7 +471,7 @@ async def main():
     camera_conf_dir = CAMERA_CONFIG_DIR
     camera_conf_dir.mkdir(parents=True, exist_ok=True)
 
-    # await discover_devices()  # this doesn't work (at least not on my network).
+    await discover_devices()  # this doesn't work (at least not on my network).
 
     camera_configs_list = []
 
