@@ -83,7 +83,7 @@ Sample config files
 -------------------
 
 #### Camera config 
-`$HOME/.config/onvifeye/cameras/c225-1.conf``
+`$HOME/.config/onvifeye/cameras/c225-1.conf`
 
 ```commandline
 {
