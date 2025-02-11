@@ -171,6 +171,10 @@ unusable to the point where, after terminating the script, I have to log
 out of the terminal/ssh-session and log back in. I need to track this
 down and prevent it.
 
+When an event occurs, due to time delays receiving and processing the 
+ONVIF notification, the script might not capture video for the very
+beginning of the event.
+
 I expect that cameras other than the C225 may report detection events 
 differently.  The code needs to be enhanced to abstract/separate the 
 detection-parsing so it is determined by camera-model.
