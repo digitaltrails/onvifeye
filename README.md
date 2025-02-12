@@ -22,7 +22,7 @@ Onvifeye includes the following functions:
  - Multiple cameras can be monitored, each with its own config file.
 
 The script was developed on Linux, but may be able to work on 
-any platform that supports the supporting python libraries.  It's currently 
+any platform that supports the required python libraries.  It's currently 
 running on OpenSUSE Tumbleweed (AMD x86-64) and Raspbian (Raspberry Pi 5).
 
 Feedback is welcome.
