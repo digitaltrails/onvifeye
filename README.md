@@ -5,7 +5,7 @@ ___This code works, I'm using it to monitor a camera, but
 it is still work in progress.___
 
 Onvifeye is a camera ONVIF python client that monitors TP-Link Tapo-C225,
-saving videos, jpegs, and raising emails.
+saving videos, jpegs, and raising emails.  
 
 THe script may work with other cameras, but might require modification
 to cope with camera specific event data.
@@ -20,6 +20,10 @@ Onvifeye includes the following functions:
  - An example external script is provided. It sends an email with a jpeg attachment.
  - Fast encoding by using ffmpeg.
  - Multiple cameras can be monitored, each with its own config file.
+
+The script was developed on Linux, but may be able to work on 
+any platform that supports the supporting python libraries.  It's currently 
+running on OpenSUSE Tumbleweed (AMD x86-64) and Raspbian (Raspberry Pi 5).
 
 Feedback is welcome.
 
