@@ -153,7 +153,6 @@ chmod u+x /where/ever/you/put/onvifeye-email.py
 ~/onvif-venv/bin/python3 onvifeye.py
 ```
 
-
 The email script can also be tested stand alone, for example:
 ```commandline
 # Create a dummy image for a date-time
@@ -162,6 +161,50 @@ touch ~/onvifeye/images/10.36.184.128/20250209-134428.jpg
 # Invoke the script, pass it a camera-id and the detection/date-time from above:
 # (the id can be anything you like, it doesn't have to be an actual camera id)
 python3 ~/Projects/onvifeye/onvifeye-email.py DummyCameraId IsPerson/20250209-134428
+```
+
+User systemd service
+--------------------
+
+I'm experimenting with running the script as a systemd user service.
+
+I set up a user service that lingers after logout and linger also means 
+it will restart on a reboot.  I set up a user such as ovadmin, installed
+the scripts and the required environment, and set the user to linger.
+```commandline
+loginctl enable-linger ovadmin
+loginctl list-users
+ UID USER  LINGER
+1000 ovadmin yes
+
+1 users listed.
+```
+The `/home/ovadmin/.config/systemd/user/onvifeye.service` unit file is as follows:
+```commandline
+[Unit]
+Description=onvifeye
+StartLimitIntervalSec=30
+StartLimitBurst=2
+
+[Service]
+ExecStart=/home/ovadmin/onvif-venv/bin/python3 /home/ovadmin/onvifeye.py
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+```
+Enable the user service:
+```
+systemctl --user daemon-reload
+systemctl --user enable onvifeye
+```
+Start the service and check if it started, and look in the journal for logging:
+```commandline
+systemctl --user start onvifeye
+systemctl --user status onvifeye
+journalctl --user --boot
+# tail the accumulating log:
+journalctl --user --boot --follow
 ```
 
 Issues
