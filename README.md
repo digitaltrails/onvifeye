@@ -155,7 +155,7 @@ chmod u+x /where/ever/you/put/onvifeye-email.py
 The email script can also be tested stand alone, for example:
 ```commandline
 # Create a dummy image for a date-time
-touch ~/onvifeye/images/10.36.184.128/20250209-134428.jpg
+touch ~/onvifeye/images/DummyCameraId/20250209-134428.jpg
 
 # Invoke the script, pass it a camera-id and the detection/date-time from above:
 # (the id can be anything you like, it doesn't have to be an actual camera id)
