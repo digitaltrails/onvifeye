@@ -72,7 +72,6 @@ a normal user account, for example:
 python3 -m venv ~/onvif-venv
 ~/onvif-venv/bin/pip3 install onvif-zeep-async
 ~/onvif-venv/bin/pip3 install ffmpeg-python
- install ffmpeg-python
 ```
 
 ### Executing the program
