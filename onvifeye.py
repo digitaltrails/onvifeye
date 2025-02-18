@@ -253,11 +253,12 @@ def save_video(camera_id: str, rtsp_uri: str, clip_seconds: int, detections: Dic
         out, err = ffmpeg.input(rtsp_uri, t=clip_seconds, loglevel=24).output(
             filename=save_path.as_posix(), f='mpegts',
             vcodec='h264', acodec='aac', preset='ultrafast', tune='zerolatency',
-            loglevel=8).run(capture_stdout=True, capture_stderr=True)
+            loglevel=8).run(quiet=True)
         if out or err:
-            log.error(f"{err} {err.stdout.decode('utf8')=} {err.stderr.decode('utf8')=}")
-    except ffmpeg.Error:
-        log.error(f"{err} {err.stdout.decode('utf8')=} {err.stderr.decode('utf8')=}")
+            log.error(f"{err} {err.stdout.decode('utf8')=} {out.stderr.decode('utf8')=}")
+    except ffmpeg.Error as ffmpeg_exception:
+        log.error(f"ffmpeg_exception: {ffmpeg_exception}")
+        log.error(f"May not have saved {save_path}")
         return
     log.info(f"closed {save_path.as_posix()}")
 
