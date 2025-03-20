@@ -166,6 +166,9 @@ User systemd service
 --------------------
 
 I'm experimenting with running the script as a systemd user service.
+I've had the service running for about a month with no issues, it 
+handles the camera going in and out of private mode, it has been 
+saving videos and sending emails for person-detection events.
 
 I set up a user service that lingers after logout and linger also means 
 it will restart on a reboot.  I set up a user such as ovadmin, installed
