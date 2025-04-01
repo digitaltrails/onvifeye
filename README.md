@@ -5,7 +5,7 @@ ___This code works, I'm using it to monitor a camera, but
 it is still work in progress.___
 
 Onvifeye is a camera ONVIF python client that monitors TP-Link Tapo-C225,
-saving videos, jpegs, and raising emails.  
+Tapo-C125, and maybe others.  It saves videos, jpegs, and raises emails.  
 
 THe script may work with other cameras, but might require modification
 to cope with camera specific event data.
@@ -13,9 +13,9 @@ to cope with camera specific event data.
 Onvifeye includes the following functions:
 
  - Monitoring for event types (for example, IsPerson, IsPet, IsMotion).
- - Download of video clips of events via RSTP (Tapo-C225 RSTP majorStream or minorStream).
+ - Download of video clips of events via RSTP (Tapo-C225/C125 RSTP majorStream or minorStream).
  - Clips are encoded in MPEGTS streaming format so they can be viewed while downloading.
- - Download of jpegs via RSTP (mini preview imags Tapo-C225 RSTP jpegStream).
+ - Download of jpegs via RSTP (mini preview imags Tapo-C225/C125 RSTP jpegStream).
  - Events may trigger the execution of an external script.
  - An example external script is provided. It sends an email with a jpeg attachment.
  - Fast encoding by using ffmpeg.
@@ -26,6 +26,14 @@ any platform that supports the required python libraries.  It's currently
 running on OpenSUSE Tumbleweed (AMD x86-64) and Raspbian (Raspberry Pi 5).
 
 Feedback is welcome.
+
+Cameras and Camera Firmware
+===========================
+
+I'm using the following cameras with the noted firmware versions:
+
+  - Tapo-C225(EU) Ver 2.0 Firmware 1.1.0 Build 250115 Rel 47645n
+  - Tapo-C125(EU) Ver 1.0 Firmware 1.3.2 Build 241122 Rel 43589n
 
 Required libraries
 ===================
@@ -224,7 +232,7 @@ When an event occurs, due to time delays receiving and processing the
 ONVIF notification, the script might not capture video for the very
 beginning of the event.
 
-I expect that cameras other than the C225 may report detection events 
+I expect that cameras other than the C225/C125 may report detection events 
 differently.  The code needs to be enhanced to abstract/separate the 
 detection-parsing so it is determined by camera-model.
 
