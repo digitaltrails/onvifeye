@@ -96,6 +96,7 @@ logging.getLogger("httpx").setLevel(logging.CRITICAL)
 EXCEPTION_RETRY_WAIT_SECONDS = 5
 
 CAMERA_ONVIF_WSDL_DIR = imp_resources.files('onvif') / 'wsdl'
+log.info(f"{CAMERA_ONVIF_WSDL_DIR=}")
 
 CONFIG_DIR = Path.home() / '.config' / 'onvifeye'
 CAMERA_CONFIG_DIR = CONFIG_DIR / Path('camera_conf')
@@ -112,7 +113,7 @@ class CameraConfig(object):
                  camera_model = '',
                  camera_ip_addr = '',
                  camera_onvif_port = '2020',
-                 camera_stream_name = 'majorStream',
+                 camera_stream_name = 'mainStream',
                  camera_stills_stream_name = 'jpegStream',
                  camera_clip_seconds = 30,
                  camera_target_events = ('IsPeople', 'IsCar'),
@@ -304,9 +305,9 @@ class EventHandler:
             stream_setup.StreamSetup = {'Stream': 'RTP-Unicast', 'Transport': {'Protocol': 'RTSP'}}
             stream_setup.ProfileToken = profile.token
             uri_data = await media_service.GetStreamUri(stream_setup)
-            log.info(f'{profile.Name} {uri_data=}')
+            log.info(f'EventHandler: Obtained uri_data for {profile.Name} {uri_data=}')
             if profile.Name == stream_name:
-                log.info(f'Base URL: {uri_data.Uri=}')
+                log.info(f'EventHandler: Base URL: {uri_data.Uri=}')
                 rtsp_uri = uri_add_authentication(uri_data.Uri,
                                                   self.target_camera.onvif.user,
                                                   self.target_camera.onvif.passwd)
@@ -338,8 +339,10 @@ class VideoWriter(EventHandler):
         while not self.stop_requested:
             try:
                 media_service = await self.target_camera.onvif.create_media_service()
+                log.info(f'VideoWriter: Trying to connect to {self.stream_name}')
                 if rtsp_uri := await self._find_rtsp_uri(media_service, self.stream_name):
-                    log.debug(f'{rtsp_uri=}')
+                    log.info(f'VideoWriter: Successfully connected to {self.stream_name}')
+                    log.debug(f'VideoWriter: Stream {self.stream_name} {rtsp_uri=}')
                     while not self.stop_requested:
                         if relevant_detections := {event: etime
                                                    for event, etime in self.target_camera.detections.items()
@@ -354,10 +357,13 @@ class VideoWriter(EventHandler):
                             self.mark_as_handled(relevant_detections)  # update
                         await asyncio.sleep(0.1)
                 else:
-                    log.info("Camera doesn't appear to be active, will wait.")
+                    log.info(f"VideoWriter: Could not connect to stream {self.stream_name}. "
+                             f"Is this the correct stream name? "
+                             f"Waiting {EXCEPTION_RETRY_WAIT_SECONDS} seconds in case it becomes available.")
                     await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
             except ONVIFError as e:
-                log.warning(f'Assuming camera is unavailable, will wait [{repr(e)}]')
+                log.warning(f"VideoWriter: ONVIF Error (may not be serious, will retry): [{repr(e)}]")
+                log.info(f'VideoWriter: Assuming camera is unavailable, will wait {EXCEPTION_RETRY_WAIT_SECONDS} seconds.')
                 await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
 
 
@@ -371,8 +377,10 @@ class ImageWriter(EventHandler):
         while not self.stop_requested:
             try:
                 media_service = await self.target_camera.onvif.create_media_service()
+                log.info(f'ImageWriter: Trying to connect to {self.stream_name}')
                 if rtsp_uri := await self._find_rtsp_uri(media_service, self.stream_name):
-                    log.debug(f'{rtsp_uri=}')
+                    log.info(f'ImageWriter: Successfully connected to {self.stream_name}')
+                    log.debug(f'ImageWriter: Stream {self.stream_name} {rtsp_uri=}')
                     while not self.stop_requested:
                         if relevant_detections := {event: etime
                                                    for event, etime in self.target_camera.detections.items()
@@ -387,10 +395,13 @@ class ImageWriter(EventHandler):
                             self.mark_as_handled(relevant_detections)
                         await asyncio.sleep(0.1)
                 else:
-                    log.info("Camera doesn't appear to be active, will wait.")
+                    log.info(f"ImageWriter: Could not connect to stream {self.stream_name}. "
+                             f"Is this the correct stream name? "
+                             f"Waiting {EXCEPTION_RETRY_WAIT_SECONDS} seconds in case it becomes available.")
                     await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
             except ONVIFError as e:
-                log.warning(f'Assuming camera is unavailable, will wait [{repr(e)}]')
+                log.warning(f"ImageWriter: ONVIF Error (may not be serious, will retry): [{repr(e)}]")
+                log.info(f'ImageWriter: Assuming camera is unavailable, will wait {EXCEPTION_RETRY_WAIT_SECONDS} seconds.')
                 await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
 
 
@@ -416,7 +427,7 @@ class EventExecHandler(EventHandler):
                                         self.target_camera.config.camera_id,
                                         relevant_detections))
                         else:
-                            log.critical(f'Event executable {exe.as_posix()} is not runnable.')
+                            log.critical(f'EventExecHandler: Event executable {exe.as_posix()} is not runnable.')
                     self.mark_as_handled(relevant_detections)
             await asyncio.sleep(0.1)
 
@@ -433,9 +444,9 @@ async def discover_devices():
                         "dp0",
                     )], scopes=[Scope('onvif://www.onvif.org/Profile/Streaming')])
         for service in services:
-            log.info(service.getEPR() + ":" + service.getXAddrs()[0])
+            log.info(f"discover_devices: {service.getEPR()}: {service.getXAddrs()[0]}")
         wsd.stop()
-        log.info('done device device discovery')
+        log.info('discover_devices: done device device discovery')
         #sys.exit(0)
     else:
         pass
