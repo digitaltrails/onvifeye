@@ -244,9 +244,6 @@ class NotificationPuller:
 def save_video(camera_id: str, rtsp_uri: str, clip_seconds: int, detections: Dict[str, datetime],
                save_folder: Path = VIDEO_DIR):
     save_folder.mkdir(parents=True, exist_ok=True)
-    if not os.access(save_folder, os.W_OK):
-        log.error(f"Save folder is not writable: {save_folder.as_posix()}")
-        return
     save_path = (save_folder / f'{camera_id}' /
                  f'{list(detections.values())[0].strftime("%Y%m%d-%H%M%S")}.mp4')
     log.info(f"writing {save_path.as_posix()}")
@@ -272,9 +269,6 @@ def save_video(camera_id: str, rtsp_uri: str, clip_seconds: int, detections: Dic
 def save_image(camera_id: str, rtsp_uri: str, detections: Dict[str, datetime],
                save_folder: Path = IMAGE_DIR):
     save_folder.mkdir(parents=True, exist_ok=True)
-    if not os.access(save_folder, os.W_OK):
-        log.error(f"Save folder is not writable: {save_folder.as_posix()}")
-        return
     save_path = (save_folder / f'{camera_id}' /
                  f'{list(detections.values())[0].strftime("%Y%m%d-%H%M%S")}.jpg')
     log.info(f'writing {save_path.as_posix()}')
