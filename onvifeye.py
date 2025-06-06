@@ -74,7 +74,7 @@ from datetime import datetime, timedelta
 from functools import partial
 from pathlib import Path
 from subprocess import Popen
-from symtable import Function
+from types import FunctionType
 from typing import Dict
 
 try_ws_discovery = False
@@ -348,7 +348,7 @@ class MediaSaverEventHandler(EventHandler):
         log.info(f"{self.log_name}: save path: {self.save_path.as_posix()}")
 
     @abstractmethod
-    def get_saver_function(self, rtsp_uri: str, relevant_detections: Dict[str, datetime]) -> Function:
+    def get_saver_function(self, rtsp_uri: str, relevant_detections: Dict[str, datetime]) -> FunctionType:
         assert 'Abstract lacks definition'  # has to return a python (non-class) function that can be pickled
 
     async def handle_events(self):
@@ -388,13 +388,13 @@ class VideoWriter(MediaSaverEventHandler):
         super().__init__(target_camera, stream_name)
         self.clip_seconds = clip_seconds
 
-    def get_saver_function(self, rtsp_uri: str, relevant_detections: Dict[str, datetime]) -> Function:
+    def get_saver_function(self, rtsp_uri: str, relevant_detections: Dict[str, datetime]) -> FunctionType:
         return partial(save_video, self.target_camera.config.camera_id, rtsp_uri, self.clip_seconds, relevant_detections,
                        self.save_path)
 
 class ImageWriter(MediaSaverEventHandler):
 
-    def get_saver_function(self, rtsp_uri: str, relevant_detections: Dict[str, datetime]) -> Function:
+    def get_saver_function(self, rtsp_uri: str, relevant_detections: Dict[str, datetime]) -> FunctionType:
         return partial(save_image, self.target_camera.config.camera_id, rtsp_uri, relevant_detections,
                        self.save_path)
 
