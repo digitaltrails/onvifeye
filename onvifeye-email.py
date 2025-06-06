@@ -26,7 +26,7 @@ def send_mail(send_from: str, send_to: List[str],
     boilerplate = """
      Please notify the sender immediately by e-mail if you have 
      received this e-mail by mistake and delete this e-mail from
-     your system. If you are not the intended recipient you are 
+     your system. If you are not the intended recipient, you are 
      notified that disclosing, copying, distributing or taking 
      any action in reliance on the contents of this information 
      is strictly prohibited.""" if add_legal_stuff else ''
@@ -66,12 +66,12 @@ def main():
                               for k, v in detections.items()]))
         attach_filename = None
         jpeg_filename = Path.home() / 'onvifeye' / 'images' / camera_id / f'{list(detections.values())[0]}.jpg'
-        print(jpeg_filename.as_posix())
+        log.info(f"looking for {jpeg_filename.as_posix()}")
         for _ in range(10):  # give up after 10 seconds
             if jpeg_filename.exists():
                 attach_filename = jpeg_filename
                 break
-            print("sleeping")
+            # print("sleeping")
             time.sleep(1)
         send_mail(**email_config, subject=subject, message=message, jpeg_filename=attach_filename)
 

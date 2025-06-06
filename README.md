@@ -1,14 +1,15 @@
 onvifeye: ONVIF event monitor and clip recorder
 ===============================================
 
-___This code works, I'm using it to monitor a camera, but
-it is still work in progress.___
+> [!WARNING]
+> This code works, I'm using it to monitor a camera, but
+> it is still work in progress.
 
 Onvifeye is a camera ONVIF python client that monitors TP-Link Tapo-C225,
 Tapo-C125, and maybe others.  It saves videos, jpegs, and raises emails.  
 
 THe script may work with other cameras, but might require modification
-to cope with camera specific event data.
+to cope with camera-specific event data.
 
 Onvifeye includes the following functions:
 
@@ -40,7 +41,7 @@ Required libraries
 
 Beyond standard Python3, the following additional libraries are required:
  - onvif-zeep-async (pip install onvif-zeep-async)
- - ffmpeg-python (pip install ffmpeg-python). __Take care not to confuse
+ - ffmpeg-python (pip3 install ffmpeg-python). __Take care not to confuse
    ffmpeg-python with python-ffmpeg the two are different ffmpeg python
    implementations.__
 
@@ -54,7 +55,7 @@ may be triggered.
 
 Onvifeye may handle a series of continuous detection notifications as a single
 event. For example, onvifeye regards a series of notifications that include
-_IsPerson=True_ as all part of a single event.  If a following notification
+_IsPerson=True_ as part of a single event.  If a following notification
 lacks _IsPerson=True_, or if there are no following notifications within
 60 seconds, the event expires.
 
@@ -69,8 +70,8 @@ script.
 
 ### Installing the program
 
-Depending on you Linux distribution, the required dependencies may not be
-available via your disto's normall installation mechanism.  You might have
+Depending on your Linux distribution, the required dependencies may not be
+available via your distro's normal installation mechanism.  You might have
 to use _pip_ to install them locally in a python-virtual environment under
 a normal user account, for example:
 
@@ -88,7 +89,7 @@ No special permissions are required, just use a normal account.
 Assuming you're using the python venv created above, the script
 can be setup and run as follows:
 
-First create some template config files for one or more cameras:
+First, create some template config files for one or more cameras:
 
 ```commandline
 # Create starter config files for any cameras you wish to monitor:
@@ -149,7 +150,7 @@ the contents should resemble:
 ```
 
 Make the email script executable and check its location is properly set in
-the camera config file (see example camera config file above), then start
+the camera config file (see the example camera config file above), then start
 or restart the main script:
 
 ```
@@ -169,6 +170,10 @@ touch ~/onvifeye/images/DummyCameraId/20250209-134428.jpg
 # (the id can be anything you like, it doesn't have to be an actual camera id)
 python3 ~/Projects/onvifeye/onvifeye-email.py DummyCameraId IsPerson/20250209-134428
 ```
+
+ > [!WARNING]
+ > The email script is currently hard coded to expect images and videos to be
+ > in the default location (edit the script to change it).
 
 User systemd service
 --------------------
@@ -275,6 +280,6 @@ with this program. If not, see <https://www.gnu.org/licenses/>.
   [TAPO-camera-ONVIF-RTSP-and-AI-Object-Recognition](
   https://github.com/peterstamps/TAPO-camera-ONVIF-RTSP-and-AI-Object-Recognition).
 * Thanks go out to Graham Huang, TP-Link Support, and Solla-topee, 
-  TP-Link Community Support for responding so rapidy to my enquiries
+  TP-Link Community Support for responding so rapidly to my enquiries
   concerning missing ONVIF detection data. A 48-hour response with new
-  firmware - quite remarkable.
+  firmware, quite remarkable.

@@ -74,6 +74,7 @@ from datetime import datetime, timedelta
 from functools import partial
 from pathlib import Path
 from subprocess import Popen
+from symtable import Function
 from typing import Dict
 
 try_ws_discovery = False
@@ -101,7 +102,7 @@ log.info(f"{CAMERA_ONVIF_WSDL_DIR=}")
 CONFIG_DIR = Path.home() / '.config' / 'onvifeye'
 CAMERA_CONFIG_DIR = CONFIG_DIR / Path('camera_conf')
 DATA_DIR = Path.home() / 'onvifeye'
-VIDEO_DIR = DATA_DIR / Path('videos')
+VIDEO_DIR: Path = DATA_DIR / Path('videos')
 IMAGE_DIR = DATA_DIR / Path('images')
 
 
@@ -240,9 +241,13 @@ class NotificationPuller:
         self.pullpoint_manager = None
 
 
-def save_video(camera_id: str, rtsp_uri: str, clip_seconds: int, detections: Dict[str, datetime]):
-    VIDEO_DIR.mkdir(parents=True, exist_ok=True)
-    save_path = (VIDEO_DIR / f'{camera_id}' /
+def save_video(camera_id: str, rtsp_uri: str, clip_seconds: int, detections: Dict[str, datetime],
+               save_folder: Path = VIDEO_DIR):
+    save_folder.mkdir(parents=True, exist_ok=True)
+    if not os.access(save_folder, os.W_OK):
+        log.error(f"Save folder is not writable: {save_folder.as_posix()}")
+        return
+    save_path = (save_folder / f'{camera_id}' /
                  f'{list(detections.values())[0].strftime("%Y%m%d-%H%M%S")}.mp4')
     log.info(f"writing {save_path.as_posix()}")
     save_path.parent.parent.mkdir(exist_ok=True)
@@ -264,9 +269,13 @@ def save_video(camera_id: str, rtsp_uri: str, clip_seconds: int, detections: Dic
     log.info(f"closed {save_path.as_posix()}")
 
 
-def save_image(camera_id: str, rtsp_uri: str, detections: Dict[str, datetime]):
-    IMAGE_DIR.mkdir(parents=True, exist_ok=True)
-    save_path = (IMAGE_DIR / f'{camera_id}' /
+def save_image(camera_id: str, rtsp_uri: str, detections: Dict[str, datetime],
+               save_folder: Path = IMAGE_DIR):
+    save_folder.mkdir(parents=True, exist_ok=True)
+    if not os.access(save_folder, os.W_OK):
+        log.error(f"Save folder is not writable: {save_folder.as_posix()}")
+        return
+    save_path = (save_folder / f'{camera_id}' /
                  f'{list(detections.values())[0].strftime("%Y%m%d-%H%M%S")}.jpg')
     log.info(f'writing {save_path.as_posix()}')
     save_path.parent.parent.mkdir(exist_ok=True)
@@ -328,21 +337,34 @@ class EventHandler:
         pass
 
 
-class VideoWriter(EventHandler):
+class MediaSaverEventHandler(EventHandler):
 
-    def __init__(self, target_camera: TargetCamera, stream_name: str, clip_seconds: int):
+    def __init__(self, target_camera: TargetCamera, stream_name):
         super().__init__(target_camera)
         self.stream_name = stream_name
-        self.clip_seconds = clip_seconds
+        self.log_name = f"{self.__class__.__name__}.{self.target_camera.config.camera_id}"
+        self.save_path = Path(target_camera.config.camera_save_folder)
+        try:
+            self.save_path.mkdir(exist_ok=True)
+            if not os.access(self.save_path, os.W_OK):
+                raise PermissionError(f"path {self.save_path} is not writable")
+        except (PermissionError, FileNotFoundError) as e:
+            log.error(f"{self.log_name}: {str(e)}")
+            sys.exit(1)
+        log.info(f"{self.log_name}: save path: {self.save_path.as_posix()}")
+
+    @abstractmethod
+    def get_saver_function(self, rtsp_uri: str, relevant_detections: Dict[str, datetime]) -> Function:
+        assert 'Abstract lacks definition'  # has to return a python (non-class) function that can be pickled
 
     async def handle_events(self):
         while not self.stop_requested:
             try:
                 media_service = await self.target_camera.onvif.create_media_service()
-                log.info(f'VideoWriter: Trying to connect to {self.stream_name}')
+                log.info(f'{self.log_name}: Trying to connect to stream {self.stream_name}')
                 if rtsp_uri := await self._find_rtsp_uri(media_service, self.stream_name):
-                    log.info(f'VideoWriter: Successfully connected to {self.stream_name}')
-                    log.debug(f'VideoWriter: Stream {self.stream_name} {rtsp_uri=}')
+                    log.info(f'{self.log_name}: Successfully connected to {self.stream_name}')
+                    log.debug(f'{self.log_name}: Stream {self.stream_name} {rtsp_uri=}')
                     while not self.stop_requested:
                         if relevant_detections := {event: etime
                                                    for event, etime in self.target_camera.detections.items()
@@ -352,57 +374,35 @@ class VideoWriter(EventHandler):
                                 with ProcessPoolExecutor() as pool:
                                     await loop.run_in_executor(
                                         pool,
-                                        partial(save_video, self.target_camera.config.camera_id,
-                                                rtsp_uri, self.clip_seconds, relevant_detections))
+                                        self.get_saver_function(rtsp_uri, relevant_detections))
                             self.mark_as_handled(relevant_detections)  # update
                         await asyncio.sleep(0.1)
                 else:
-                    log.info(f"VideoWriter: Could not connect to stream {self.stream_name}. "
+                    log.info(f"{self.log_name}: Could not connect to stream {self.stream_name}. "
                              f"Is this the correct stream name? "
                              f"Waiting {EXCEPTION_RETRY_WAIT_SECONDS} seconds in case it becomes available.")
                     await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
             except ONVIFError as e:
-                log.warning(f"VideoWriter: ONVIF Error (may not be serious, will retry): [{repr(e)}]")
-                log.info(f'VideoWriter: Assuming camera is unavailable, will wait {EXCEPTION_RETRY_WAIT_SECONDS} seconds.')
+                log.warning(f"{self.log_name}: ONVIF Error (may not be serious, will retry): [{repr(e)}]")
+                log.info(f'{self.log_name}: Assuming camera is unavailable, will wait {EXCEPTION_RETRY_WAIT_SECONDS} seconds.')
                 await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
 
 
-class ImageWriter(EventHandler):
+class VideoWriter(MediaSaverEventHandler):
 
-    def __init__(self, target_camera: TargetCamera, stream_name: str):
-        super().__init__(target_camera)
-        self.stream_name = stream_name
+    def __init__(self, target_camera: TargetCamera, stream_name: str, clip_seconds: int):
+        super().__init__(target_camera, stream_name)
+        self.clip_seconds = clip_seconds
 
-    async def handle_events(self):
-        while not self.stop_requested:
-            try:
-                media_service = await self.target_camera.onvif.create_media_service()
-                log.info(f'ImageWriter: Trying to connect to {self.stream_name}')
-                if rtsp_uri := await self._find_rtsp_uri(media_service, self.stream_name):
-                    log.info(f'ImageWriter: Successfully connected to {self.stream_name}')
-                    log.debug(f'ImageWriter: Stream {self.stream_name} {rtsp_uri=}')
-                    while not self.stop_requested:
-                        if relevant_detections := {event: etime
-                                                   for event, etime in self.target_camera.detections.items()
-                                                   if event in self.target_camera.config.camera_target_events}:
-                            loop = asyncio.get_running_loop()
-                            if not self.has_been_handled(relevant_detections):
-                                with ProcessPoolExecutor() as pool:
-                                    await loop.run_in_executor(
-                                        pool,
-                                        partial(save_image, self.target_camera.config.camera_id, rtsp_uri,
-                                                relevant_detections))
-                            self.mark_as_handled(relevant_detections)
-                        await asyncio.sleep(0.1)
-                else:
-                    log.info(f"ImageWriter: Could not connect to stream {self.stream_name}. "
-                             f"Is this the correct stream name? "
-                             f"Waiting {EXCEPTION_RETRY_WAIT_SECONDS} seconds in case it becomes available.")
-                    await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
-            except ONVIFError as e:
-                log.warning(f"ImageWriter: ONVIF Error (may not be serious, will retry): [{repr(e)}]")
-                log.info(f'ImageWriter: Assuming camera is unavailable, will wait {EXCEPTION_RETRY_WAIT_SECONDS} seconds.')
-                await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
+    def get_saver_function(self, rtsp_uri: str, relevant_detections: Dict[str, datetime]) -> Function:
+        return partial(save_video, self.target_camera.config.camera_id, rtsp_uri, self.clip_seconds, relevant_detections,
+                       self.save_path)
+
+class ImageWriter(MediaSaverEventHandler):
+
+    def get_saver_function(self, rtsp_uri: str, relevant_detections: Dict[str, datetime]) -> Function:
+        return partial(save_image, self.target_camera.config.camera_id, rtsp_uri, relevant_detections,
+                       self.save_path)
 
 
 class EventExecHandler(EventHandler):
