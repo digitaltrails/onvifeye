@@ -65,14 +65,16 @@ def main():
                    '\n'.join([ f'{k.removeprefix("Is")} detected at {v}'
                               for k, v in detections.items()]))
         attach_filename = None
-        jpeg_filename = Path.home() / 'onvifeye' / 'images' / camera_id / f'{list(detections.values())[0]}.jpg'
+        jpeg_filename = Path.home() / 'onvifeye' / camera_id / f'{list(detections.values())[0]}.jpg'
         log.info(f"looking for {jpeg_filename.as_posix()}")
+        # print(f"looking for {jpeg_filename.as_posix()}")
         for _ in range(10):  # give up after 10 seconds
             if jpeg_filename.exists():
                 attach_filename = jpeg_filename
                 break
-            # print("sleeping")
+            print("sleeping")
             time.sleep(1)
+        #print(attach_filename)
         send_mail(**email_config, subject=subject, message=message, jpeg_filename=attach_filename)
 
 if __name__ == '__main__':
