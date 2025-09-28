@@ -48,7 +48,14 @@ def send_mail(send_from: str, send_to: List[str],
     smtp_connection.sendmail(send_from, send_to, msg.as_string())
     smtp_connection.close()
 
-
+# The sys.argv arguments expected to be: camera-id detectionType/yyyymmdd-hhmmss
+# For example: python3 onvifeye-email.py c125-1 IsPerson/20250928-125933
+# The detection type and date-time is used in the email subject.  T
+# The jpeg is attached to the email.
+# The jpeg is expected to found in $HOME/onvifeye/camera-id/yyyymmdd-hhmmss.jpg
+# In this example, the jpeg should be in $HOME/onvifeye/c125-1/20250928-125933.jpg
+# The script will loop testing for jpeg to be written for 10 seconds and then give
+# up waiting and email anyway.
 def main():
     config_file = Path.home() / '.config' / 'onvifeye' / 'onvifeye-email.conf'
     log.info(f'Reading email config from {config_file.as_posix()}.')
