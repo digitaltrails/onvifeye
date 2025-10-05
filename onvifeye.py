@@ -389,14 +389,12 @@ class VideoWriter(MediaSaverEventHandler):
         self.clip_seconds = clip_seconds
 
     def get_saver_function(self, rtsp_uri: str, relevant_detections: Dict[str, datetime]) -> FunctionType:
-        return partial(save_video, self.target_camera.config.camera_id, rtsp_uri, self.clip_seconds, relevant_detections,
-                       self.save_path)
+        return partial(save_video, self.target_camera.config.camera_id, rtsp_uri, self.clip_seconds, relevant_detections)
 
 class ImageWriter(MediaSaverEventHandler):
 
     def get_saver_function(self, rtsp_uri: str, relevant_detections: Dict[str, datetime]) -> FunctionType:
-        return partial(save_image, self.target_camera.config.camera_id, rtsp_uri, relevant_detections,
-                       self.save_path)
+        return partial(save_image, self.target_camera.config.camera_id, rtsp_uri, relevant_detections)
 
 
 class EventExecHandler(EventHandler):
