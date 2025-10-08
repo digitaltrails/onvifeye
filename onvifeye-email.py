@@ -52,8 +52,8 @@ def send_mail(send_from: str, send_to: List[str],
 # For example: python3 onvifeye-email.py c125-1 IsPerson/20250928-125933
 # The detection type and date-time is used in the email subject.  T
 # The jpeg is attached to the email.
-# The jpeg is expected to found in $HOME/onvifeye/camera-id/yyyymmdd-hhmmss.jpg
-# In this example, the jpeg should be in $HOME/onvifeye/c125-1/20250928-125933.jpg
+# The jpeg is expected to found in $HOME/onvifeye/images/camera-id/yyyymmdd-hhmmss.jpg
+# In this example, the jpeg should be in $HOME/onvifeye/images/c125-1/20250928-125933.jpg
 # The script will loop testing for jpeg to be written for 10 seconds and then give
 # up waiting and email anyway.
 def main():
@@ -72,15 +72,17 @@ def main():
                    '\n'.join([ f'{k.removeprefix("Is")} detected at {v}'
                               for k, v in detections.items()]))
         attach_filename = None
-        jpeg_filename = Path.home() / 'onvifeye' / camera_id / f'{list(detections.values())[0]}.jpg'
+        jpeg_filename = Path.home() / 'onvifeye' / 'images' / camera_id / f'{list(detections.values())[0]}.jpg'
         log.info(f"looking for {jpeg_filename.as_posix()}")
         # print(f"looking for {jpeg_filename.as_posix()}")
         for _ in range(10):  # give up after 10 seconds
             if jpeg_filename.exists():
-                attach_filename = jpeg_filename
                 break
-            print("sleeping")
             time.sleep(1)
+        if jpeg_filename.exists():
+            attach_filename = jpeg_filename
+        else:
+            message += f"\nCould not find {jpeg_filename}"
         #print(attach_filename)
         send_mail(**email_config, subject=subject, message=message, jpeg_filename=attach_filename)
 
