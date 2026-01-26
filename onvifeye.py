@@ -68,6 +68,7 @@ import logging
 import os
 import signal
 import sys
+import time
 from abc import abstractmethod
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime, timedelta
@@ -119,7 +120,8 @@ class CameraConfig(object):
                  camera_clip_seconds = 30,
                  camera_target_events = ('IsPeople', 'IsCar'),
                  camera_event_exec = '',
-                 camera_save_folder = DATA_DIR.as_posix()):
+                 camera_save_folder = DATA_DIR.as_posix(),
+                 camera_grab_stills_from_video = True):
         super().__init__()
         self.camera_username = camera_username
         self.camera_password = camera_password
@@ -133,6 +135,7 @@ class CameraConfig(object):
         self.camera_clip_seconds = camera_clip_seconds
         self.camera_event_exec = camera_event_exec
         self.camera_save_folder = camera_save_folder
+        self.camera_grab_stills_from_video = camera_grab_stills_from_video
 
 
 # https://stackoverflow.com/a/75060902/609575
@@ -209,7 +212,7 @@ class NotificationPuller:
                                     if is_happening == "true":
                                         if type_of_detection not in self.target_camera.detections:
                                             self.target_camera.detections[type_of_detection] = datetime.now()
-                                            log.info(f'added {type_of_detection} to {self.target_camera.detections=}')
+                                            log.info(f'Received {type_of_detection} event, added it to {self.target_camera.detections=}')
                         else:
                             await asyncio.sleep(0.1)
                     except httpx.RemoteProtocolError as nothing_ready:
@@ -240,12 +243,28 @@ class NotificationPuller:
             await self.pullpoint_manager.stop()
         self.pullpoint_manager = None
 
+def extract_frame(video_path: Path, target_second: float, output_image_path: Path):
+    """
+    Extracts a single frame from a video at a specific timestamp using ffmpeg-python.
+    """
+    try:
+        log.info(f"writing {output_image_path.as_posix()}")
+        output_image_path.parent.parent.mkdir(exist_ok=True)
+        output_image_path.parent.mkdir(exist_ok=True)
+        if output_image_path.exists():
+            log.error(f'Skipping save. Save file already exists: {output_image_path}')
+            return
+        out, err = ffmpeg.input(video_path, ss=target_second).output(
+            output_image_path, vframes=1, qscale=2).run(quiet=True)
+        if out or err:
+            log.error(f"extract_frame: {err} {err.stdout.decode('utf8')=} {out.stderr.decode('utf8')=}")
+    except ffmpeg.Error as e:
+        log.error(f"extract_frame: FFmpeg error: {e.stderr.decode()}")
 
-def save_video(camera_id: str, rtsp_uri: str, clip_seconds: int, detections: Dict[str, datetime],
-               save_folder: Path = VIDEO_DIR):
+def save_video(camera_id: str, rtsp_uri: str, clip_seconds: int, detections: Dict[str, datetime], save_folder: Path = VIDEO_DIR):
     save_folder.mkdir(parents=True, exist_ok=True)
-    save_path = (save_folder / f'{camera_id}' /
-                 f'{list(detections.values())[0].strftime("%Y%m%d-%H%M%S")}.mp4')
+    incident_time = list(detections.values())[0]
+    save_path = save_folder / f'{camera_id}' / f'{incident_time.strftime("%Y%m%d-%H%M%S")}.mp4'
     log.info(f"writing {save_path.as_posix()}")
     save_path.parent.parent.mkdir(exist_ok=True)
     save_path.parent.mkdir(exist_ok=True)
@@ -266,27 +285,31 @@ def save_video(camera_id: str, rtsp_uri: str, clip_seconds: int, detections: Dic
     log.info(f"closed {save_path.as_posix()}")
 
 
-def save_image(camera_id: str, rtsp_uri: str, detections: Dict[str, datetime],
-               save_folder: Path = IMAGE_DIR):
-    save_folder.mkdir(parents=True, exist_ok=True)
-    save_path = (save_folder / f'{camera_id}' /
-                 f'{list(detections.values())[0].strftime("%Y%m%d-%H%M%S")}.jpg')
-    log.info(f'writing {save_path.as_posix()}')
-    save_path.parent.parent.mkdir(exist_ok=True)
-    save_path.parent.mkdir(exist_ok=True)
+def save_image(camera_id: str, rtsp_uri: str, detections: Dict[str, datetime], save_folder: Path = IMAGE_DIR):
+    save_path = generate_save_path(camera_id, list(detections.values())[0], save_folder)
     if save_path.exists():
         log.error(f'Skipping save. Save file already exists: {save_path}')
         return
     try:
+        log.info(f'writing {save_path.as_posix()}')
+        time.sleep(0.5) # The first fram might not yet be completely written or might be a more general problem?
         out, err = ffmpeg.input(rtsp_uri, loglevel=32).output(
             filename=save_path.as_posix(), vframes=1,
             loglevel=8).run()#(capture_stdout=True, capture_stderr=True)
         if out or err:
-            log.error(f"{err} {err.stdout.decode('utf8')=} {err.stderr.decode('utf8')=}")
+            log.error(f"{err} {err.decode('utf8')=} {err.decode('utf8')=}")
     except ffmpeg.Error as e:
         log.error(f"ffmpeg error {e}")
         return
     log.info(f'closed {save_path.as_posix()}')
+
+
+def generate_save_path(camera_id: str, time_of_image, save_folder: Path) -> Path:
+    save_folder.mkdir(parents=True, exist_ok=True)
+    save_path = save_folder / f'{camera_id}' / f'{time_of_image.strftime("%Y%m%d-%H%M%S")}.jpg'
+    save_path.parent.parent.mkdir(exist_ok=True)
+    save_path.parent.mkdir(exist_ok=True)
+    return save_path
 
 
 def execute_external_handler(handler_exe: Path, camera_id, relevant_detections: Dict[str, datetime]):
@@ -525,10 +548,16 @@ async def main():
             notification_puller = NotificationPuller(target_camera)
             _ = watch_task_group.create_task(notification_puller.listen())
             if camera_config.camera_stills_stream_name:
-                image_writer = ImageWriter(target_camera,
-                                           stream_name=camera_config.camera_stills_stream_name)
+                if camera_config.camera_grab_stills_from_video:
+                    log.warning(f'Camera {camera_config.camera_id} set to camera_grab_stills_from_video, ignoring stream {camera_config.camera_stills_stream_name}')
+                    image_feed = camera_config.camera_stream_name
+                else:
+                    image_feed = camera_config.camera_stills_stream_name
+                log.info(f'Camera {camera_config.camera_id} still-image feed set to {image_feed}')
+                image_writer = ImageWriter(target_camera, stream_name=image_feed)
                 _ = watch_task_group.create_task(image_writer.handle_events())
             if camera_config.camera_stream_name:
+                log.info(f'Camera {camera_config.camera_id} video feed set to {image_feed}')
                 video_writer = VideoWriter(target_camera,
                                            stream_name=camera_config.camera_stream_name,
                                            clip_seconds=camera_config.camera_clip_seconds)
