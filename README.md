@@ -123,9 +123,10 @@ properties that differ from the defaults, for example:
 ```
 The latest commit includes the a new setting `camera_grab_stills_from_video`,
 which defaults to `true`.  This setting forces the script to grab still images from
-`camera_stream_name` rather than `camera_stills_stream_name`. Using the main
-video stream is preferable because it works for more cameras, plus the 
-images are grabbed full size.  If set to `false` the stills stream will be used.
+videos saved from `camera_stream_name`. This may be preferable to grabbing them 
+from the `camera_stills_stream_name` because it's bound to work for more cameras, 
+plus the images are grabbed full size.  If set to `false` the stills stream 
+will be used as before.
 
 Run with the configured config files, for example:
 
