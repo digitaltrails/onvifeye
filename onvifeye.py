@@ -261,10 +261,9 @@ def extract_frame(video_path: Path, target_second: float, output_image_path: Pat
     except ffmpeg.Error as e:
         log.error(f"extract_frame: FFmpeg error: {e.stderr.decode()}")
 
-def save_video(camera_id: str, rtsp_uri: str, clip_seconds: int, detections: Dict[str, datetime], save_folder: Path = VIDEO_DIR):
-    save_folder.mkdir(parents=True, exist_ok=True)
+def save_video(camera_id: str, rtsp_uri: str, clip_seconds: int, detections: Dict[str, datetime]):
     incident_time = list(detections.values())[0]
-    save_path = save_folder / f'{camera_id}' / f'{incident_time.strftime("%Y%m%d-%H%M%S")}.mp4'
+    save_path = generate_save_path(camera_id, incident_time, VIDEO_DIR, 'mp4')
     log.info(f"writing {save_path.as_posix()}")
     save_path.parent.parent.mkdir(exist_ok=True)
     save_path.parent.mkdir(exist_ok=True)
@@ -285,14 +284,38 @@ def save_video(camera_id: str, rtsp_uri: str, clip_seconds: int, detections: Dic
     log.info(f"closed {save_path.as_posix()}")
 
 
-def save_image(camera_id: str, rtsp_uri: str, detections: Dict[str, datetime], save_folder: Path = IMAGE_DIR):
-    save_path = generate_save_path(camera_id, list(detections.values())[0], save_folder)
+def extract_frame_to_image(camera_id: str, incident_time: datetime, image_save_path: Path):
+    # Extract from the file we have already written
+    video_path = generate_save_path(camera_id, incident_time, VIDEO_DIR, 'mp4')
+    time.sleep(1.0)
+    for i in range(1, 5):
+        if video_path.exists():
+            try:
+                log.info(f"extract_frame_to_image: writing {image_save_path.as_posix()} from {video_path.as_posix()}")
+                out, err = ffmpeg.input(video_path.as_posix(), ss=0).output(
+                    image_save_path.as_posix(), vframes=1, qscale=2).run(quiet=True)
+                if out or err:
+                    log.error(f"extract_frame_to_image: {err} {err.decode('utf8')=} {out.decode('utf8')=}")
+            except ffmpeg.Error as e:
+                log.error(f"extract_frame_to_image: FFmpeg error: {e.stderr.decode()}")
+            log.info(f'extract_frame_to_image: closed {image_save_path.as_posix()}')
+            return
+        time.sleep(1.0)
+    log.error(f'extract_frame_to_image: failed to find {video_path.as_posix()}, could not extract frame')
+
+
+def save_image(camera_id: str, rtsp_uri: str, detections: Dict[str, datetime], grab_stills_from_video: bool):
+    incident_time = list(detections.values())[0]
+    save_path = generate_save_path(camera_id, incident_time, IMAGE_DIR, 'jpg')
     if save_path.exists():
         log.error(f'Skipping save. Save file already exists: {save_path}')
         return
     try:
+        if grab_stills_from_video:
+            extract_frame_to_image(camera_id, incident_time, save_path)
+            return
         log.info(f'writing {save_path.as_posix()}')
-        time.sleep(0.5) # The first fram might not yet be completely written or might be a more general problem?
+        time.sleep(0.5)
         out, err = ffmpeg.input(rtsp_uri, loglevel=32).output(
             filename=save_path.as_posix(), vframes=1,
             loglevel=8).run()#(capture_stdout=True, capture_stderr=True)
@@ -304,9 +327,9 @@ def save_image(camera_id: str, rtsp_uri: str, detections: Dict[str, datetime], s
     log.info(f'closed {save_path.as_posix()}')
 
 
-def generate_save_path(camera_id: str, time_of_image, save_folder: Path) -> Path:
+def generate_save_path(camera_id: str, incident_time: datetime, save_folder: Path, file_type_suffix: str) -> Path:
     save_folder.mkdir(parents=True, exist_ok=True)
-    save_path = save_folder / f'{camera_id}' / f'{time_of_image.strftime("%Y%m%d-%H%M%S")}.jpg'
+    save_path = save_folder / f'{camera_id}' / f'{incident_time.strftime("%Y%m%d-%H%M%S")}.{file_type_suffix}'
     save_path.parent.parent.mkdir(exist_ok=True)
     save_path.parent.mkdir(exist_ok=True)
     return save_path
@@ -417,7 +440,8 @@ class VideoWriter(MediaSaverEventHandler):
 class ImageWriter(MediaSaverEventHandler):
 
     def get_saver_function(self, rtsp_uri: str, relevant_detections: Dict[str, datetime]) -> FunctionType:
-        return partial(save_image, self.target_camera.config.camera_id, rtsp_uri, relevant_detections)
+        return partial(save_image, self.target_camera.config.camera_id, rtsp_uri, relevant_detections,
+                       self.target_camera.config.camera_grab_stills_from_video)
 
 
 class EventExecHandler(EventHandler):
