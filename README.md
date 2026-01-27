@@ -110,15 +110,22 @@ properties that differ from the defaults, for example:
     "camera_ip_addr": "10.0.0.128",
     "camera_onvif_port": "2020",
     "camera_stream_name": "mainStream",
+    "camera_stills_stream_name": "jpegStream",
     "camera_clip_seconds": 60,
     "camera_target_events": [
         "IsPeople",
         "IsCar"
     ],
     "camera_event_exec": "/home/michael/bin/onvifeye-email.py",
-    "camera_save_folder": "/home/michael/onvifeye"
+    "camera_save_folder": "/home/michael/onvifeye",
+    "camera_grab_stills_from_video": true
 }
 ```
+The latest commit includes the a new setting `camera_grab_stills_from_video`,
+which defaults to `true`.  This setting forces the script to grab still images from
+`camera_stream_name` rather than `camera_stills_stream_name`. Using the main
+video stream is preferable because it works for more cameras, plus the 
+images are grabbed full size.  If set to `false` the stills stream will be used.
 
 Run with the configured config files, for example:
 
