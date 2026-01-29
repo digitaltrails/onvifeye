@@ -243,23 +243,6 @@ class NotificationPuller:
             await self.pullpoint_manager.stop()
         self.pullpoint_manager = None
 
-def extract_frame(video_path: Path, target_second: float, output_image_path: Path):
-    """
-    Extracts a single frame from a video at a specific timestamp using ffmpeg-python.
-    """
-    try:
-        log.info(f"writing {output_image_path.as_posix()}")
-        output_image_path.parent.parent.mkdir(exist_ok=True)
-        output_image_path.parent.mkdir(exist_ok=True)
-        if output_image_path.exists():
-            log.error(f'Skipping save. Save file already exists: {output_image_path}')
-            return
-        out, err = ffmpeg.input(video_path, ss=target_second).output(
-            output_image_path, vframes=1, qscale=2).run(quiet=True)
-        if out or err:
-            log.error(f"extract_frame: {err} {err.stdout.decode('utf8')=} {out.stderr.decode('utf8')=}")
-    except ffmpeg.Error as e:
-        log.error(f"extract_frame: FFmpeg error: {e.stderr.decode()}")
 
 def save_video(camera_id: str, rtsp_uri: str, clip_seconds: int, detections: Dict[str, datetime]):
     incident_time = list(detections.values())[0]
@@ -287,7 +270,7 @@ def save_video(camera_id: str, rtsp_uri: str, clip_seconds: int, detections: Dic
 def extract_frame_to_image(camera_id: str, incident_time: datetime, image_save_path: Path):
     # Extract from the file we have already written
     video_path = generate_save_path(camera_id, incident_time, VIDEO_DIR, 'mp4')
-    time.sleep(1.0)
+    time.sleep(4.0)
     for i in range(1, 5):
         if video_path.exists():
             try:
@@ -381,8 +364,9 @@ class MediaSaverEventHandler(EventHandler):
 
     def __init__(self, target_camera: TargetCamera, stream_name):
         super().__init__(target_camera)
+        self.camera_id = target_camera.config.camera_id
         self.stream_name = stream_name
-        self.log_name = f"{self.__class__.__name__}.{self.target_camera.config.camera_id}"
+        self.log_name = f"{self.__class__.__name__}.{self.camera_id}.{self.stream_name}"
         self.save_path = Path(target_camera.config.camera_save_folder)
         try:
             self.save_path.mkdir(exist_ok=True)
@@ -398,6 +382,7 @@ class MediaSaverEventHandler(EventHandler):
         assert 'Abstract lacks definition'  # has to return a python (non-class) function that can be pickled
 
     async def handle_events(self):
+        previous_rerr = None
         while not self.stop_requested:
             try:
                 media_service = await self.target_camera.onvif.create_media_service()
@@ -417,14 +402,17 @@ class MediaSaverEventHandler(EventHandler):
                                         self.get_saver_function(rtsp_uri, relevant_detections))
                             self.mark_as_handled(relevant_detections)  # update
                         await asyncio.sleep(0.1)
+                    previous_rerr = None
                 else:
                     log.info(f"{self.log_name}: Could not connect to stream {self.stream_name}. "
                              f"Is this the correct stream name? "
                              f"Waiting {EXCEPTION_RETRY_WAIT_SECONDS} seconds in case it becomes available.")
                     await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
             except ONVIFError as e:
-                log.warning(f"{self.log_name}: ONVIF Error (may not be serious, will retry): [{repr(e)}]")
-                log.info(f'{self.log_name}: Assuming camera is unavailable, will wait {EXCEPTION_RETRY_WAIT_SECONDS} seconds.')
+                rerr = repr(e)
+                if rerr != previous_rerr:
+                    log.warning(f"{self.log_name}: ONVIF Error (may not be serious): [{repr(e)}]")
+                    log.info(f'{self.log_name}: Assuming {self.log_name} camera is unavailable, will keep retrying every {EXCEPTION_RETRY_WAIT_SECONDS} seconds.')
                 await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
 
 
