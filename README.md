@@ -183,7 +183,7 @@ python3 ~/Projects/onvifeye/onvifeye-email.py DummyCameraId IsPerson/20250209-13
  > The email script is currently hard coded to expect images and videos to be
  > in the default location (edit the script to change it).
 
-Use in the presense of a Tapa 500 Hub
+Use in the presense of a Tapo 500 Hub
 -------------------------------------
 The __Tapo H500 hub__ defaults to setting each camera to fallback the H500's own 
 private WiFi SID/network when the camera's user-assigned WiFi SID/network 
