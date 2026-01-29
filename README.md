@@ -183,6 +183,29 @@ python3 ~/Projects/onvifeye/onvifeye-email.py DummyCameraId IsPerson/20250209-13
  > The email script is currently hard coded to expect images and videos to be
  > in the default location (edit the script to change it).
 
+Use in the presense of a Tapa 500 Hub
+-------------------------------------
+The __Tapo H500 hub__ defaults to setting each camera to fallback the H500's own 
+private WiFi SID/network when the camera's user-assigned WiFi SID/network 
+becomes unavailable (or is measured as having a poor RSSI value?). 
+
+If a camera does fallback to the H500's WiFi, then the ONVIF feed will no
+longer be visible on the user assigned WiFi SID/network.
+
+You can tell if a camera is connecting to an H500's SID by checking the 
+SID listed for the Tapo App's _Camera-Settings Network-Connection_.  
+Additionally, touching the _WiFi-icon_ in the _Camera-Settings 
+Network-Connectioin_ will toggle the display of the measured RSSI
+(which can be handy when deciding where to place a camera).
+
+I'm unsure if a Camera will return to the user assigned WiFi when
+the RSSI improves, or whether a reboot of the camera is requited.
+I suspect the later.
+
+You can disable H500-WiFi fallback on a camera by camera basis under 
+the H500's _Manage Connected-Devices_. for each camera, set _WiFi 
+backup_ to off.
+
 User systemd service
 --------------------
 
