@@ -319,3 +319,5 @@ with this program. If not, see <https://www.gnu.org/licenses/>.
   TP-Link Community Support for responding so rapidly to my enquiries
   concerning missing ONVIF detection data. A 48-hour response with new
   firmware, quite remarkable.
+* @jb1923 for feedback, including reporting that the C310 camera works
+  with the script.
