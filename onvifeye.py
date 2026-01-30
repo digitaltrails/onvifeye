@@ -68,6 +68,7 @@ import logging
 import os
 import signal
 import sys
+import termios
 import time
 from abc import abstractmethod
 from concurrent.futures import ProcessPoolExecutor
@@ -583,4 +584,21 @@ async def main():
     await watch_task_group
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    if sys.stdin.isatty():  # ffmpeg is doing something to the tty - save attributes for restoration at exit
+        tty_fd = sys.stdin.fileno()
+        tty_attrs = termios.tcgetattr(tty_fd)
+    if sys.stdin.isatty():
+        tty_fd = sys.stderr.fileno()
+        tty_attrs = termios.tcgetattr(tty_fd)
+    else:
+        tty_attrs = None
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        log.error(f'Exiting due to exception {e}')
+    finally:
+        log.info('Cleaning up...')
+        if tty_attrs:   # ffmpeg is doing something to the tty - restore it
+            termios.tcsetattr(tty_fd, termios.TCSAFLUSH, tty_attrs)
+            log.info('Restored tty')
+        log.info('Exiting.')
