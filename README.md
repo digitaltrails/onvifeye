@@ -1,9 +1,10 @@
 onvifeye: ONVIF event monitor and clip recorder
 ===============================================
 
-> [!WARNING]
-> This code works, I'm using it to monitor a camera, but
-> it is still work in progress.
+> [!NOTE]
+> This code is now mature. I'm using it to monitor three different 
+> models of Tapo cameras, but there are relatively few users, so your 
+> millage may vary.
 
 Onvifeye is a camera ONVIF python client that monitors TP-Link Tapo-C225,
 Tapo-C125, and maybe others.  It saves videos, jpegs, and raises emails.  
@@ -188,12 +189,14 @@ python3 ~/Projects/onvifeye/onvifeye-email.py DummyCameraId IsPerson/20250209-13
 
 Use in the presense of a Tapo 500 Hub
 -------------------------------------
+
 The __Tapo H500 hub__ defaults to setting each camera to fallback the H500's own 
 private WiFi SID/network when the camera's user-assigned WiFi SID/network 
 becomes unavailable (or is measured as having a poor RSSI value?). 
 
-If a camera does fallback to the H500's WiFi, then the ONVIF feed will no
-longer be visible on the user assigned WiFi SID/network.
+> [!IMPORTANT]
+> If a camera does fallback to the H500's WiFi, then the ONVIF feed will no
+> longer be visible on the user assigned WiFi SID/network.
 
 You can disable H500-WiFi fallback on a camera by camera basis under 
 the H500's _Manage Connected-Devices_. for each camera, set _WiFi 
