@@ -35,6 +35,9 @@ I'm using the following cameras with the noted firmware versions:
 
   - Tapo-C225(EU) Ver 2.0 Firmware 1.1.0 Build 250115 Rel 47645n
   - Tapo-C125(EU) Ver 1.0 Firmware 1.3.2 Build 241122 Rel 43589n
+  - Tapo-C320WS(EU) Ver 2.2 Firmware 1.3.5 Build 250522 Rel.4563n
+
+The script is also report to work with the CS310.
 
 Required libraries
 ===================
@@ -121,7 +124,7 @@ properties that differ from the defaults, for example:
     "camera_grab_stills_from_video": true
 }
 ```
-The latest commit includes the a new setting `camera_grab_stills_from_video`,
+The latest commit includes a new setting `camera_grab_stills_from_video`,
 which defaults to `true`.  This setting forces the script to grab still images from
 videos saved from `camera_stream_name`. This may be preferable to grabbing them 
 from the `camera_stills_stream_name` because it's bound to work for more cameras, 
@@ -192,6 +195,10 @@ becomes unavailable (or is measured as having a poor RSSI value?).
 If a camera does fallback to the H500's WiFi, then the ONVIF feed will no
 longer be visible on the user assigned WiFi SID/network.
 
+You can disable H500-WiFi fallback on a camera by camera basis under 
+the H500's _Manage Connected-Devices_. for each camera, set _WiFi 
+backup_ to off.
+
 You can tell if a camera is connecting to an H500's SID by checking the 
 SID listed for the Tapo App's _Camera-Settings Network-Connection_.  
 Additionally, touching the _WiFi-icon_ in the _Camera-Settings 
@@ -200,11 +207,7 @@ Network-Connectioin_ will toggle the display of the measured RSSI
 
 I'm unsure if a Camera will return to the user assigned WiFi when
 the RSSI improves, or whether a reboot of the camera is requited.
-I suspect the later.
-
-You can disable H500-WiFi fallback on a camera by camera basis under 
-the H500's _Manage Connected-Devices_. for each camera, set _WiFi 
-backup_ to off.
+I suspect the latter.
 
 User systemd service
 --------------------
@@ -256,17 +259,19 @@ journalctl --user --boot --follow
 Issues
 ------
 
-A camera going offline may cause the script to stop working, I need
-to track down and handle any exceptions that occur.
+A camera going offline may sometimes cause the script to stop working, I need
+to track down and handle any exceptions that occur.  This may be due to
+cameras falling back from user WiFi to Tapo H500 Hub WiFi - needs further
+investigation.
 
 Something from ffmpeg seems to write to the tty in a way that makes it
-unusable to the point where, after terminating the script, I have to log 
-out of the terminal/ssh-session and log back in. I need to track this
-down and prevent it.
+unusable after terminating the script.  I've now added code to check if
+either stdin or stout is a tty, if yes, the tty attributes are saved
+at startup and restored at exit. This should hopefully solve the
+issue if/when in occurs (but this is untested).
 
-When an event occurs, due to time delays receiving and processing the 
-ONVIF notification, the script might not capture video for the very
-beginning of the event.
+Due to time delays receiving and processing ONVIF notification, the 
+script might not capture video for the very beginning of an event.
 
 I expect that cameras other than the C225/C125 may report detection events 
 differently.  The code needs to be enhanced to abstract/separate the 
