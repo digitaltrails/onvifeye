@@ -12,8 +12,11 @@ Tapo-C125, and maybe others.  It saves videos, jpegs, and raises emails.
 THe script may work with other cameras, but might require modification
 to cope with camera-specific event data.
 
-Onvifeye includes the following functions:
+Onvifeye includes the following features:
 
+ - Extremely low CPU usage, leaning on the cameras to do continuous monitoring,
+   and only responding when cameras raise events.
+ - Low disk usage, only obtaining clips and images when events occur.
  - Monitoring for event types (for example, IsPerson, IsPet, IsMotion).
  - Download of video clips of events via RSTP (Tapo-C225/C125 RSTP majorStream or minorStream).
  - Clips are encoded in MPEGTS streaming format so they can be viewed while downloading.
