@@ -255,14 +255,14 @@ def save_video(camera_id: str, rtsp_uri: str, clip_seconds: int, detections: Dic
         log.error(f'Skipping save. Save file already exists: {save_path}')
         return
     try:  # using mpegts so it can be previewed as it's being created.
-        out, err = ffmpeg.input(rtsp_uri, t=clip_seconds, loglevel=24).output(
+        out, err = ffmpeg.input(rtsp_uri, t=clip_seconds, loglevel=24,  rtsp_transport='tcp').output(
             filename=save_path.as_posix(), f='mpegts',
             vcodec='h264', acodec='aac', preset='ultrafast', tune='zerolatency',
-            loglevel=8).run(quiet=True)
-        if out or err:
-            log.error(f"{err} {err.stdout.decode('utf8')=} {out.stderr.decode('utf8')=}")
-    except ffmpeg.Error as ffmpeg_exception:
-        log.error(f"ffmpeg_exception: {ffmpeg_exception}")
+            loglevel=8).run(capture_stdout=False, capture_stderr=True, overwrite_output=True, quiet=True)
+        log_ffmpeg_output(out, err)
+    except ffmpeg.Error as e:
+        log.error(f"ffmpeg error {e}")
+        log_ffmpeg_output(e.stdout, e.stderr, as_error=True)
         log.error(f"May not have saved {save_path}")
         return
     log.info(f"closed {save_path.as_posix()}")
@@ -276,12 +276,13 @@ def extract_frame_to_image(camera_id: str, incident_time: datetime, image_save_p
         if video_path.exists():
             try:
                 log.info(f"extract_frame_to_image: writing {image_save_path.as_posix()} from {video_path.as_posix()}")
-                out, err = ffmpeg.input(video_path.as_posix(), ss=0).output(
-                    image_save_path.as_posix(), vframes=1, qscale=2).run(quiet=True)
-                if out or err:
-                    log.error(f"extract_frame_to_image: {err} {err.decode('utf8')=} {out.decode('utf8')=}")
+                out, err = ffmpeg.input(video_path.as_posix(), ss=0, loglevel=8).output(
+                    image_save_path.as_posix(), vframes=1, qscale=2).run(
+                    capture_stdout=False, capture_stderr=True, overwrite_output=True, quiet=True)
+                log_ffmpeg_output(out, err)
             except ffmpeg.Error as e:
-                log.error(f"extract_frame_to_image: FFmpeg error: {e.stderr.decode()}")
+                log.error(f"ffmpeg error {e}")
+                log_ffmpeg_output(e.stdout, e.stderr, as_error=True)
             log.info(f'extract_frame_to_image: closed {image_save_path.as_posix()}')
             return
         time.sleep(1.0)
@@ -300,16 +301,23 @@ def save_image(camera_id: str, rtsp_uri: str, detections: Dict[str, datetime], g
             return
         log.info(f'writing {save_path.as_posix()}')
         time.sleep(0.5)
-        out, err = ffmpeg.input(rtsp_uri, loglevel=32).output(
+        out, err = ffmpeg.input(rtsp_uri, loglevel=8, rtsp_transport='tcp').output(
             filename=save_path.as_posix(), vframes=1,
-            loglevel=8).run()#(capture_stdout=True, capture_stderr=True)
-        if out or err:
-            log.error(f"{err} {err.decode('utf8')=} {err.decode('utf8')=}")
+            loglevel=8).run(capture_stdout=False, capture_stderr=True, overwrite_output=True, quiet=True)
+        log_ffmpeg_output(out, err)
     except ffmpeg.Error as e:
         log.error(f"ffmpeg error {e}")
+        log_ffmpeg_output(e.stdout, e.stderr, as_error=True)
         return
     log.info(f'closed {save_path.as_posix()}')
 
+
+def log_ffmpeg_output(stdout, stderr, as_error: bool=False):
+    logger = log.error if as_error else log.info
+    if stdout or stderr or as_error:
+        logger(f"ffmpeg: stdout: {stdout.decode('utf-8') if stdout else 'No stdout'}")
+        logger(f"ffmpeg: stderr: {stderr.decode('utf-8') if stderr else 'No stderr'}")
+    pass
 
 def generate_save_path(camera_id: str, incident_time: datetime, save_folder: Path, file_type_suffix: str) -> Path:
     save_folder.mkdir(parents=True, exist_ok=True)
