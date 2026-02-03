@@ -70,6 +70,7 @@ import signal
 import sys
 import termios
 import time
+import traceback
 from abc import abstractmethod
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime, timedelta
@@ -167,6 +168,7 @@ class NotificationPuller:
 
     def __init__(self, target_camera: TargetCamera):
         self.target_camera = target_camera
+        self.camera_id = self.target_camera.config.camera_id
         self.pullpoint_manager: PullPointManager | None  = None
         self.pullpoint_service: ONVIFService | None = None
         self.stop_requested = False
@@ -182,23 +184,29 @@ class NotificationPuller:
                     subscription_lost_callback=self.recover_subscription)
                 self.pullpoint_service = await self.target_camera.onvif.create_pullpoint_service()
             except httpx.HTTPError as e:
-                log.warning(f'Notification Puller http error, will wait. [{repr(e)}]')
+                log.warning(f'Notification Puller {self.camera_id} http error, will wait. [{repr(e)}]')
                 await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
 
     async def recover_subscription(self):
-        await self.disconnect()
-        await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
-        await self.connect()
+        # should we loop here? while not self.stop_requested:
+        try:
+            await self.disconnect()
+            await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
+            await self.connect()
+        except Exception as e:
+            log.warning(f'Pull exception: recover_subscription exception {self.camera_id} [{repr(e)}]')
 
     async def listen(self):
         while not self.stop_requested:
-            if self.pullpoint_service is None:
-                await self.connect()
-            pullpoint_req = self.pullpoint_service.create_type('PullMessages')
-            pullpoint_req.MessageLimit = 5000
-            pullpoint_req.Timeout = (timedelta(days=0, hours=0,
-                                               seconds=self.detection_expiry_seconds))
             try:
+                if self.pullpoint_service is None:
+                    log.info(F"Listening, connecting to {self.camera_id} ...")
+                    await self.connect()
+                pullpoint_req = self.pullpoint_service.create_type('PullMessages')
+                pullpoint_req.MessageLimit = 5000
+                pullpoint_req.Timeout = (timedelta(days=0, hours=0,
+                                                   seconds=self.detection_expiry_seconds))
+                log.info(F"Listening, pulling messages from {self.camera_id} ...")
                 while not self.stop_requested:
                     try:
                         # throws httpx.RemoteProtocolError if it times out
@@ -206,18 +214,18 @@ class NotificationPuller:
                         if camera_messages and camera_messages['NotificationMessage']:
                             for notification_msg in camera_messages['NotificationMessage']:
                                 if log.isEnabledFor(logging.DEBUG):  # Avoid expensive debugging
-                                    log.debug(f"Notification {notification_msg=}")
+                                    log.debug(f"Notification {self.camera_id} {notification_msg=}")
                                 data = notification_msg['Message']['_value_1']['Data']
                                 for simple_item in data['SimpleItem']:
                                     type_of_detection, is_happening = simple_item['Name'], simple_item['Value']
                                     if is_happening == "true":
                                         if type_of_detection not in self.target_camera.detections:
                                             self.target_camera.detections[type_of_detection] = datetime.now()
-                                            log.info(f'Received {type_of_detection} event, added it to {self.target_camera.detections=}')
+                                            log.info(f'Received{self.camera_id} {type_of_detection} event, added it to {self.target_camera.detections=}')
                         else:
                             await asyncio.sleep(0.1)
                     except httpx.RemoteProtocolError as nothing_ready:
-                        log.debug(f'No messages ready. [{repr(nothing_ready)}]')
+                        log.debug(f'No messages ready {self.camera_id}. [{repr(nothing_ready)}]')
                         pass
                     finally:
                         now = datetime.now()
@@ -226,14 +234,14 @@ class NotificationPuller:
                             for name, first_seen_at in self.target_camera.detections.items()
                             if (now - first_seen_at).seconds > self.detection_expiry_seconds]:
                                 del self.target_camera.detections[type_of_detection]
-                                log.info(f"expire '{type_of_detection}': {first_seen_at} -> {self.target_camera.detections=}")
+                                log.info(f"expire {self.camera_id} '{type_of_detection}': {first_seen_at} -> {self.target_camera.detections=}")
             except Exception as e:
-                log.warning(f'Pull exception, will try again. [{repr(e)}]')
+                log.warning(f'Pull exception {self.camera_id}, will try again. [{repr(e)}]')
             finally:
                 try:
                     await self.disconnect()
-                except httpx.ConnectTimeout as e2:
-                    log.warning(f'Pull exception, could not disconnect - ignoring. [{repr(e)}]')
+                except Exception as e2:
+                    log.warning(f'Pull exception {self.camera_id}, could not disconnect - ignoring. [{repr(e2)}]')
 
 
     async def disconnect(self):
@@ -603,7 +611,8 @@ if __name__ == '__main__':
     try:
         asyncio.run(main())
     except Exception as e:
-        log.error(f'Exiting due to exception {e}')
+        trace_text = traceback.format_exc()
+        log.error(f'Exiting due to exception {e} {trace_text}')
     finally:
         log.info('Cleaning up...')
         if tty_attrs:   # ffmpeg is doing something to the tty - restore it
