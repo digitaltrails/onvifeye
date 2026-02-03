@@ -243,7 +243,7 @@ StartLimitBurst=2
 
 [Service]
 ExecStart=/home/ovadmin/onvif-venv/bin/python3 /home/ovadmin/onvifeye.py
-Restart=on-failure
+Restart=always
 
 [Install]
 WantedBy=default.target
