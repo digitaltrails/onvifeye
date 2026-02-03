@@ -270,6 +270,13 @@ to track down and handle any exceptions that occur.  This may be due to
 cameras falling back from user WiFi to Tapo H500 Hub WiFi - needs further
 investigation.
 
+Exceptions within supporting libraries sometimes cause the onvifeye.py script
+to exit. I haven't been able to track the cause down or figure out 
+where to catch these exceptions. If you want the script to stay running 
+constantly, you might need to have a wrapper-script restart it on exit.
+When running as a systemd service, restarts can be accomplished by setting 
+`Restart=always` (systemd automatically handles too-frequent restarts).
+
 Something from ffmpeg seems to write to the tty in a way that makes it
 unusable after terminating the script.  I've now added code to check if
 either stdin or stout is a tty, if yes, the tty attributes are saved
