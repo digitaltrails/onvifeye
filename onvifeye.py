@@ -175,6 +175,7 @@ class NotificationPuller:
         self.detection_expiry_seconds = 60.0
 
     async def connect(self):
+        failed_count = 0
         while self.pullpoint_service is None:
             try:
                 await self.target_camera.onvif.update_xaddrs()
@@ -184,7 +185,10 @@ class NotificationPuller:
                     subscription_lost_callback=self.recover_subscription)
                 self.pullpoint_service = await self.target_camera.onvif.create_pullpoint_service()
             except httpx.HTTPError as e:
-                log.warning(f'Notification Puller {self.camera_id} http error, will wait. [{repr(e)}]')
+                failed_count += 1
+                if failed_count == 1:
+                    log.warning(f'Notification Puller {self.camera_id} http error, retrying'
+                                f' every {EXCEPTION_RETRY_WAIT_SECONDS} seconds. [{repr(e)}]')
                 await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
 
     async def recover_subscription(self):
@@ -242,7 +246,7 @@ class NotificationPuller:
                     await self.disconnect()
                 except Exception as e2:
                     log.warning(f'Pull exception {self.camera_id}, could not disconnect - ignoring. [{repr(e2)}]')
-
+                self.pullpoint_service = None
 
     async def disconnect(self):
         if self.pullpoint_service:
@@ -253,9 +257,9 @@ class NotificationPuller:
         self.pullpoint_manager = None
 
 
-def save_video(camera_id: str, rtsp_uri: str, clip_seconds: int, detections: Dict[str, datetime]):
+def save_video(camera_config: CameraConfig, rtsp_uri: str, clip_seconds: int, detections: Dict[str, datetime]):
     incident_time = list(detections.values())[0]
-    save_path = generate_save_path(camera_id, incident_time, VIDEO_DIR, 'mp4')
+    save_path = generate_save_path(camera_config.camera_id, incident_time, VIDEO_DIR, 'mp4')
     log.info(f"writing {save_path.as_posix()}")
     save_path.parent.parent.mkdir(exist_ok=True)
     save_path.parent.mkdir(exist_ok=True)
@@ -273,12 +277,16 @@ def save_video(camera_id: str, rtsp_uri: str, clip_seconds: int, detections: Dic
         log_ffmpeg_output(e.stdout, e.stderr, as_error=True)
         log.error(f"May not have saved {save_path}")
         return
+    finally:
+        execute_external_handler(Path(camera_config.camera_event_exec),
+                                 camera_config.camera_id,
+                                 {"VideoFinished": datetime.now(),})
     log.info(f"closed {save_path.as_posix()}")
 
 
-def extract_frame_to_image(camera_id: str, incident_time: datetime, image_save_path: Path):
+def extract_frame_to_image(camera_config: CameraConfig, incident_time: datetime, image_save_path: Path):
     # Extract from the file we have already written
-    video_path = generate_save_path(camera_id, incident_time, VIDEO_DIR, 'mp4')
+    video_path = generate_save_path(camera_config.camera_id, incident_time, VIDEO_DIR, 'mp4')
     time.sleep(4.0)
     for i in range(1, 5):
         if video_path.exists():
@@ -297,15 +305,16 @@ def extract_frame_to_image(camera_id: str, incident_time: datetime, image_save_p
     log.error(f'extract_frame_to_image: failed to find {video_path.as_posix()}, could not extract frame')
 
 
-def save_image(camera_id: str, rtsp_uri: str, detections: Dict[str, datetime], grab_stills_from_video: bool):
+def save_image(camera_config: CameraConfig, rtsp_uri: str, detections: Dict[str, datetime], grab_stills_from_video: bool):
     incident_time = list(detections.values())[0]
+    camera_id = camera_config.camera_id
     save_path = generate_save_path(camera_id, incident_time, IMAGE_DIR, 'jpg')
     if save_path.exists():
         log.error(f'Skipping save. Save file already exists: {save_path}')
         return
     try:
         if grab_stills_from_video:
-            extract_frame_to_image(camera_id, incident_time, save_path)
+            extract_frame_to_image(camera_config, incident_time, save_path)
             return
         log.info(f'writing {save_path.as_posix()}')
         time.sleep(0.5)
@@ -327,6 +336,7 @@ def log_ffmpeg_output(stdout, stderr, as_error: bool=False):
         logger(f"ffmpeg: stderr: {stderr.decode('utf-8') if stderr else 'No stderr'}")
     pass
 
+
 def generate_save_path(camera_id: str, incident_time: datetime, save_folder: Path, file_type_suffix: str) -> Path:
     save_folder.mkdir(parents=True, exist_ok=True)
     save_path = save_folder / f'{camera_id}' / f'{incident_time.strftime("%Y%m%d-%H%M%S")}.{file_type_suffix}'
@@ -336,8 +346,13 @@ def generate_save_path(camera_id: str, incident_time: datetime, save_folder: Pat
 
 
 def execute_external_handler(handler_exe: Path, camera_id, relevant_detections: Dict[str, datetime]):
-    Popen([handler_exe.as_posix(), camera_id,] + [f'{k}/{dt.strftime("%Y%m%d-%H%M%S")}'
-                                        for k, dt in relevant_detections.items()])
+    if os.path.exists(handler_exe) and os.access(handler_exe, os.F_OK | os.X_OK) and not os.path.isdir(handler_exe):
+        detections_as_str = [f'{k}/{dt.strftime("%Y%m%d-%H%M%S")}' for k, dt in relevant_detections.items()]
+        log.info(f'Executing handler {handler_exe.as_posix()} {camera_id} {detections_as_str}')
+        Popen([handler_exe.as_posix(), camera_id,] + detections_as_str)
+    else:
+        log.critical(f'execute_external_handler: Event executable {handler_exe.as_posix()} is not runnable.')
+
 
 class EventHandler:
 
@@ -440,12 +455,12 @@ class VideoWriter(MediaSaverEventHandler):
         self.clip_seconds = clip_seconds
 
     def get_saver_function(self, rtsp_uri: str, relevant_detections: Dict[str, datetime]) -> FunctionType:
-        return partial(save_video, self.target_camera.config.camera_id, rtsp_uri, self.clip_seconds, relevant_detections)
+        return partial(save_video, self.target_camera.config, rtsp_uri, self.clip_seconds, relevant_detections)
 
 class ImageWriter(MediaSaverEventHandler):
 
     def get_saver_function(self, rtsp_uri: str, relevant_detections: Dict[str, datetime]) -> FunctionType:
-        return partial(save_image, self.target_camera.config.camera_id, rtsp_uri, relevant_detections,
+        return partial(save_image, self.target_camera.config, rtsp_uri, relevant_detections,
                        self.target_camera.config.camera_grab_stills_from_video)
 
 
@@ -463,15 +478,11 @@ class EventExecHandler(EventHandler):
                 if not self.has_been_handled(relevant_detections):
                     loop = asyncio.get_running_loop()
                     with ProcessPoolExecutor() as pool:
-                        exe = self.handler_exe
-                        if os.path.exists(exe) and os.access(exe, os.F_OK | os.X_OK) and not os.path.isdir(exe):
-                            await loop.run_in_executor(
-                                pool,
-                                partial(execute_external_handler, self.handler_exe,
-                                        self.target_camera.config.camera_id,
-                                        relevant_detections))
-                        else:
-                            log.critical(f'EventExecHandler: Event executable {exe.as_posix()} is not runnable.')
+                        await loop.run_in_executor(
+                            pool,
+                            partial(execute_external_handler, self.handler_exe,
+                                    self.target_camera.config.camera_id,
+                                    relevant_detections))
                     self.mark_as_handled(relevant_detections)
             await asyncio.sleep(0.1)
 
@@ -592,8 +603,7 @@ async def main():
                                            clip_seconds=camera_config.camera_clip_seconds)
                 _ = watch_task_group.create_task(video_writer.handle_events())
             if camera_config.camera_event_exec:
-                event_exec_runner = EventExecHandler(target_camera, Path(camera_config.camera_event_exec)
-                                           )
+                event_exec_runner = EventExecHandler(target_camera, Path(camera_config.camera_event_exec))
                 _ = watch_task_group.create_task(event_exec_runner.handle_events())
 
 

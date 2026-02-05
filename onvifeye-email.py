@@ -66,25 +66,26 @@ def main():
     if email_config:
         camera_id = sys.argv[1]
         detections = { k: v for k, v in [a.split('/') for a in sys.argv[2:]] }
-        subject = f'Camera {camera_id} detected ' + ','.join(
-            [ f'{k.removeprefix("Is").lower()} at {v}' for k, v in detections.items()])
-        message = (f'Camera: {camera_id}\n\n' +
-                   '\n'.join([ f'{k.removeprefix("Is")} detected at {v}'
-                              for k, v in detections.items()]))
-        attach_filename = None
-        jpeg_filename = Path.home() / 'onvifeye' / 'images' / camera_id / f'{list(detections.values())[0]}.jpg'
-        log.info(f"looking for {jpeg_filename.as_posix()}")
-        # print(f"looking for {jpeg_filename.as_posix()}")
-        for _ in range(10):  # give up after 10 seconds
+        if not 'VideoFinished' in detections:
+            subject = f'Camera {camera_id} detected ' + ','.join(
+                [ f'{k.removeprefix("Is").lower()} at {v}' for k, v in detections.items()])
+            message = (f'Camera: {camera_id}\n\n' +
+                       '\n'.join([ f'{k.removeprefix("Is")} detected at {v}'
+                                  for k, v in detections.items()]))
+            attach_filename = None
+            jpeg_filename = Path.home() / 'onvifeye' / 'images' / camera_id / f'{list(detections.values())[0]}.jpg'
+            log.info(f"looking for {jpeg_filename.as_posix()}")
+            # print(f"looking for {jpeg_filename.as_posix()}")
+            for _ in range(10):  # give up after 10 seconds
+                if jpeg_filename.exists():
+                    break
+                time.sleep(1)
             if jpeg_filename.exists():
-                break
-            time.sleep(1)
-        if jpeg_filename.exists():
-            attach_filename = jpeg_filename
-        else:
-            message += f"\nCould not find {jpeg_filename}"
-        #print(attach_filename)
-        send_mail(**email_config, subject=subject, message=message, jpeg_filename=attach_filename)
+                attach_filename = jpeg_filename
+            else:
+                message += f"\nCould not find {jpeg_filename}"
+            #print(attach_filename)
+            send_mail(**email_config, subject=subject, message=message, jpeg_filename=attach_filename)
 
 if __name__ == '__main__':
     main()
