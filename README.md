@@ -129,7 +129,7 @@ properties that differ from the defaults, for example:
 ```
 
 The possible event names for `camera_target_events` vary for different models
-of camera, by these are quite common:
+of camera, but these are quite common:
 
  - `IsMotion`
  - `IsPeople`
