@@ -60,11 +60,10 @@ of detection event, the ONVIF related RSTP feed is used to stream video
 and jpegs to local storage, plus an optional external handling script/program
 may be triggered.
 
-Onvifeye may handle a series of continuous detection notifications as a single
-event. For example, onvifeye regards a series of notifications that include
-_IsPerson=True_ as part of a single event.  If a following notification
-lacks _IsPerson=True_, or if there are no following notifications within
-60 seconds, the event expires.
+Onvifeye will handle a sequence of continuous detection notifications as a single
+event. For example, onvifeye regards a sequence of notifications that include
+_IsPerson=True_ as part of a single event.  If there are no following 
+notifications within 60 seconds, the event expires.
 
 Getting Started
 ---------------
@@ -128,12 +127,39 @@ properties that differ from the defaults, for example:
     "camera_grab_stills_from_video": true
 }
 ```
-The latest commit includes a new setting `camera_grab_stills_from_video`,
-which defaults to `true`.  This setting forces the script to grab still images from
-videos saved from `camera_stream_name`. This may be preferable to grabbing them 
-from the `camera_stills_stream_name` because it's bound to work for more cameras, 
-plus the images are grabbed full size.  If set to `false` the stills stream 
-will be used as before.
+
+The possible event names for `camera_target_events` vary for different models
+of camera, by these are quite common:
+
+ - `IsMotion`
+ - `IsPeople`
+ - `IsPet`
+ - `IsCar`
+
+Cameras also raise events when events end, so for every event such as
+`IsMotion` there is an event `IsMotion_False`. Either can be added to
+`camera_target_events`.
+However, beware that these aren't raised in matching pairs, and may oscillate.
+For example, while motion continues a camera may produce a sequence 
+of multiple IsMotion events punctuated by the occasional `IsMotion_False`. 
+As previously mentioned, the script detects sequences of events by grouping
+them based on time-span and only initiates callbacks and recordings once 
+per sequence.  This means that if a callback will only be called for
+the first targeted event seen during a sequence.
+
+The script supports a couple of additional synthetic events:
+
+ - `*` - a wildcard that matches all event names. 
+ - `VideoEnded` - triggered when a script stops recording video of an event.
+
+Facial recognition events aren't supported because they are detected in
+the Tapo H500 hub, not the cameras.
+
+The  setting `camera_grab_stills_from_video` defaults to `true`.  This setting forces 
+the script to grab still images from videos saved from `camera_stream_name`. This is
+preferable to grabbing them from the `camera_stills_stream_name` because it's likely 
+to work for more cameras, plus the images are grabbed full size.  If set to `false` 
+the images will be grabbed from the camera stills stream.
 
 Run with the configured config files, for example:
 

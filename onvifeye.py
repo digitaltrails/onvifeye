@@ -80,6 +80,12 @@ from subprocess import Popen
 from types import FunctionType
 from typing import Dict
 
+EVENT_NOT_HAPPENING_SUFFIX = '_False'
+
+VIDEO_ENDED_SYNTHETIC_EVENT = 'VideoEnded'
+
+WILDCARD_EVENT = '*'
+
 try_ws_discovery = False
 if try_ws_discovery:
     from wsdiscovery import Scope, QName
@@ -139,6 +145,8 @@ class CameraConfig(object):
         self.camera_save_folder = camera_save_folder
         self.camera_grab_stills_from_video = camera_grab_stills_from_video
 
+    def is_event_targeted(self, event_name: str) -> bool:
+        return self.camera_target_events == '*' or event_name in self.camera_target_events
 
 # https://stackoverflow.com/a/75060902/609575
 def uri_add_authentication(url, username, password):
@@ -221,11 +229,12 @@ class NotificationPuller:
                                     log.debug(f"Notification {self.camera_id} {notification_msg=}")
                                 data = notification_msg['Message']['_value_1']['Data']
                                 for simple_item in data['SimpleItem']:
-                                    type_of_detection, is_happening = simple_item['Name'], simple_item['Value']
-                                    if is_happening == "true":
-                                        if type_of_detection not in self.target_camera.detections:
-                                            self.target_camera.detections[type_of_detection] = datetime.now()
-                                            log.info(f'Received{self.camera_id} {type_of_detection} event, added it to {self.target_camera.detections=}')
+                                    type_of_detection, is_happening = simple_item['Name'], simple_item['Value'] == 'true'
+                                    if not is_happening:
+                                        type_of_detection += EVENT_NOT_HAPPENING_SUFFIX
+                                    if type_of_detection not in self.target_camera.detections:
+                                        self.target_camera.detections[type_of_detection] = datetime.now()
+                                        log.info(f'Received {self.camera_id} {type_of_detection} event, added it to {self.target_camera.detections=}')
                         else:
                             await asyncio.sleep(0.1)
                     except httpx.RemoteProtocolError as nothing_ready:
@@ -278,9 +287,10 @@ def save_video(camera_config: CameraConfig, rtsp_uri: str, clip_seconds: int, de
         log.error(f"May not have saved {save_path}")
         return
     finally:
-        execute_external_handler(Path(camera_config.camera_event_exec),
-                                 camera_config.camera_id,
-                                 {"VideoFinished": datetime.now(),})
+        if camera_config.is_event_targeted(VIDEO_ENDED_SYNTHETIC_EVENT):
+            execute_external_handler(Path(camera_config.camera_event_exec),
+                                     camera_config.camera_id,
+                                     {VIDEO_ENDED_SYNTHETIC_EVENT: datetime.now(), })
     log.info(f"closed {save_path.as_posix()}")
 
 
@@ -378,6 +388,7 @@ class EventHandler:
         return rtsp_uri
 
     def has_been_handled(self, detections: Dict[str, datetime]):  # has this time been handled already
+        # If any event in the unexpired detections has been handled, then they all have
         for event, etime in detections.items():
             if event in self.handled and self.handled[event] == etime:
                 return True
@@ -423,9 +434,12 @@ class MediaSaverEventHandler(EventHandler):
                     log.info(f'{self.log_name}: Successfully connected to {self.stream_name}')
                     log.debug(f'{self.log_name}: Stream {self.stream_name} {rtsp_uri=}')
                     while not self.stop_requested:
-                        if relevant_detections := {event: etime
-                                                   for event, etime in self.target_camera.detections.items()
-                                                   if event in self.target_camera.config.camera_target_events}:
+                        # Only save media on relevant non-False events.
+                        if relevant_detections := {
+                            event_name: etime for event_name, etime in self.target_camera.detections.items()
+                            if not event_name.endswith(EVENT_NOT_HAPPENING_SUFFIX)
+                               and self.target_camera.config.is_event_targeted(event_name)
+                        }:
                             loop = asyncio.get_running_loop()
                             if not self.has_been_handled(relevant_detections):
                                 with ProcessPoolExecutor() as pool:
@@ -472,9 +486,10 @@ class EventExecHandler(EventHandler):
 
     async def handle_events(self):
         while not self.stop_requested:
+            target_events = self.target_camera.config.camera_target_events
             if relevant_detections := {event: etime
                                        for event, etime in self.target_camera.detections.items()
-                                       if event in self.target_camera.config.camera_target_events}:
+                                       if self.target_camera.config.is_event_targeted(event)}:
                 if not self.has_been_handled(relevant_detections):
                     loop = asyncio.get_running_loop()
                     with ProcessPoolExecutor() as pool:
