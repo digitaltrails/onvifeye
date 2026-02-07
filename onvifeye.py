@@ -67,6 +67,7 @@ import json
 import logging
 import os
 import signal
+import subprocess
 import sys
 import termios
 import time
@@ -276,15 +277,20 @@ def save_video(camera_config: CameraConfig, rtsp_uri: str, clip_seconds: int, de
         log.error(f'Skipping save. Save file already exists: {save_path}')
         return
     try:  # using mpegts so it can be previewed as it's being created.
-        out, err = ffmpeg.input(rtsp_uri, t=clip_seconds, loglevel=24,  rtsp_transport='tcp').output(
+        process = ffmpeg.input(rtsp_uri, t=clip_seconds, loglevel=24,  rtsp_transport='tcp').output(
             filename=save_path.as_posix(), f='mpegts',
             vcodec='h264', acodec='aac', preset='ultrafast', tune='zerolatency',
-            loglevel=8).run(capture_stdout=False, capture_stderr=True, overwrite_output=True, quiet=True)
+            loglevel=8).run_async(pipe_stdout=False, pipe_stderr=True, overwrite_output=True)
+        timeout_seconds = clip_seconds + 30
+        log.info(f"waiting on  {process.pid=} {timeout_seconds=}")
+        out, err = process.communicate(timeout=timeout_seconds)
         log_ffmpeg_output(out, err)
+    except subprocess.TimeoutExpired as e:
+        log.error(f"May not have saved {save_path.as_posix()} due to ffmpeg timeout error {e}")
+        return
     except ffmpeg.Error as e:
-        log.error(f"ffmpeg error {e}")
+        log.error(f"May not have saved {save_path.as_posix()} due to ffmpeg error {e}")
         log_ffmpeg_output(e.stdout, e.stderr, as_error=True)
-        log.error(f"May not have saved {save_path}")
         return
     finally:
         if camera_config.is_event_targeted(VIDEO_ENDED_SYNTHETIC_EVENT):
