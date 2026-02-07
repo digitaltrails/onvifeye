@@ -141,7 +141,7 @@ Cameras also raise events when events end, so for every event such as
 `camera_target_events`.
 However, beware that these aren't raised in matching pairs, and may oscillate.
 For example, while motion continues a camera may produce a sequence 
-of multiple IsMotion events punctuated by the occasional `IsMotion_False`. 
+of multiple `IsMotion` events punctuated by the occasional `IsMotion_False`. 
 As previously mentioned, the script detects sequences of events by grouping
 them based on time-span and only initiates callbacks and recordings once 
 per sequence.  This means that if a callback will only be called for
@@ -153,7 +153,7 @@ The script supports a couple of additional synthetic events:
  - `VideoEnded` - triggered when a script stops recording video of an event.
 
 Facial recognition events aren't supported because they are detected in
-the Tapo H500 hub, not the cameras.
+the _Tapo H500_ hub, not the cameras.
 
 The  setting `camera_grab_stills_from_video` defaults to `true`.  This setting forces 
 the script to grab still images from videos saved from `camera_stream_name`. This is
