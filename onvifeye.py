@@ -187,12 +187,14 @@ class NotificationPuller:
         failed_count = 0
         while self.pullpoint_service is None:
             try:
+                log.info(F"NotificationPuller, connecting to {self.camera_id} ...")
                 await self.target_camera.onvif.update_xaddrs()
                 interval_time = (timedelta(seconds=60))
                 self.pullpoint_manager = await self.target_camera.onvif.create_pullpoint_manager(
                     interval_time,
                     subscription_lost_callback=self.recover_subscription)
                 self.pullpoint_service = await self.target_camera.onvif.create_pullpoint_service()
+                log.info(F"NotificationPuller, connected to {self.camera_id} ...")
             except httpx.HTTPError as e:
                 failed_count += 1
                 if failed_count == 1:
@@ -202,18 +204,21 @@ class NotificationPuller:
 
     async def recover_subscription(self):
         # should we loop here? while not self.stop_requested:
+        log.info(F"NotificationPuller: recover_subscription to {self.camera_id} ...")
         try:
             await self.disconnect()
+        except Exception as e:
+            log.info(f'NotificationPuller: recover_subscription disconnect exception {self.camera_id} [{repr(e)}]')
+        try:
             await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
             await self.connect()
         except Exception as e:
-            log.warning(f'Pull exception: recover_subscription exception {self.camera_id} [{repr(e)}]')
+            log.warning(f'NotificationPuller: recover_subscription connect exception {self.camera_id} [{repr(e)}]')
 
     async def listen(self):
         while not self.stop_requested:
             try:
                 if self.pullpoint_service is None:
-                    log.info(F"Listening, connecting to {self.camera_id} ...")
                     await self.connect()
                 pullpoint_req = self.pullpoint_service.create_type('PullMessages')
                 pullpoint_req.MessageLimit = 5000
@@ -239,8 +244,8 @@ class NotificationPuller:
                         else:
                             await asyncio.sleep(0.1)
                     except httpx.RemoteProtocolError as nothing_ready:
-                        log.debug(f'No messages ready {self.camera_id}. [{repr(nothing_ready)}]')
-                        pass
+                        log.debug(f'NotificationPuller: No messages ready {self.camera_id}. [{repr(nothing_ready)}]')
+                        await asyncio.sleep(1.0)
                     finally:
                         now = datetime.now()
                         for type_of_detection, first_seen_at in [
@@ -259,12 +264,14 @@ class NotificationPuller:
                 self.pullpoint_service = None
 
     async def disconnect(self):
-        if self.pullpoint_service:
-            await self.pullpoint_service.close()
-        self.pullpoint_service = None
-        if self.pullpoint_manager:
-            await self.pullpoint_manager.stop()
-        self.pullpoint_manager = None
+        try:
+            if self.pullpoint_service:
+                await self.pullpoint_service.close()
+            if self.pullpoint_manager:
+                await self.pullpoint_manager.stop()
+        finally:
+            self.pullpoint_service = None
+            self.pullpoint_manager = None
 
 
 def save_video(camera_config: CameraConfig, rtsp_uri: str, clip_seconds: int, detections: Dict[str, datetime]):
