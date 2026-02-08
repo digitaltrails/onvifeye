@@ -392,12 +392,13 @@ class EventHandler:
             stream_setup.StreamSetup = {'Stream': 'RTP-Unicast', 'Transport': {'Protocol': 'RTSP'}}
             stream_setup.ProfileToken = profile.token
             uri_data = await media_service.GetStreamUri(stream_setup)
-            log.info(f'EventHandler: Obtained uri_data for {profile.Name} {uri_data.Uri=}')
             if profile.Name == stream_name:
-                log.info(f'EventHandler: Base URL: {uri_data.Uri=}')
+                log.info(f'EventHandler: {self.target_camera.config.camera_id} matched {profile.Name=} RTSP {uri_data.Uri=}')
                 rtsp_uri = uri_add_authentication(uri_data.Uri,
                                                   self.target_camera.onvif.user,
                                                   self.target_camera.onvif.passwd)
+            else:
+                log.info(f'EventHandler: {self.target_camera.config.camera_id} skipped {profile.Name=} RTSP {uri_data.Uri=}')
         return rtsp_uri
 
     def has_been_handled(self, detections: Dict[str, datetime]):  # has this time been handled already
