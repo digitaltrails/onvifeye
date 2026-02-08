@@ -392,7 +392,7 @@ class EventHandler:
             stream_setup.StreamSetup = {'Stream': 'RTP-Unicast', 'Transport': {'Protocol': 'RTSP'}}
             stream_setup.ProfileToken = profile.token
             uri_data = await media_service.GetStreamUri(stream_setup)
-            log.info(f'EventHandler: Obtained uri_data for {profile.Name} {uri_data=}')
+            log.info(f'EventHandler: Obtained uri_data for {profile.Name} {uri_data.Uri=}')
             if profile.Name == stream_name:
                 log.info(f'EventHandler: Base URL: {uri_data.Uri=}')
                 rtsp_uri = uri_add_authentication(uri_data.Uri,
