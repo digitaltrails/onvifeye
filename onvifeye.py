@@ -202,18 +202,9 @@ class NotificationPuller:
                                 f' every {EXCEPTION_RETRY_WAIT_SECONDS} seconds. [{repr(e)}]')
                 await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
 
-    async def recover_subscription(self):
-        # should we loop here? while not self.stop_requested:
-        log.info(F"NotificationPuller: recover_subscription to {self.camera_id} ...")
-        try:
-            await self.disconnect()
-        except Exception as e:
-            log.info(f'NotificationPuller: recover_subscription disconnect exception {self.camera_id} [{repr(e)}]')
-        try:
-            await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
-            await self.connect()
-        except Exception as e:
-            log.warning(f'NotificationPuller: recover_subscription connect exception {self.camera_id} [{repr(e)}]')
+    def recover_subscription(self):
+        # Not required because the listen() loops and reconnects on Exceptions?
+        pass
 
     async def listen(self):
         while not self.stop_requested:
