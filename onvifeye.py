@@ -81,6 +81,8 @@ from subprocess import Popen
 from types import FunctionType
 from typing import Dict
 
+DEFAULT_DETECTION_EXPIRY_SECONDS = 60.0
+
 EVENT_NOT_HAPPENING_SUFFIX = '_False'
 
 VIDEO_ENDED_SYNTHETIC_EVENT = 'VideoEnded'
@@ -181,7 +183,8 @@ class NotificationPuller:
         self.pullpoint_manager: PullPointManager | None  = None
         self.pullpoint_service: ONVIFService | None = None
         self.stop_requested = False
-        self.detection_expiry_seconds = 60.0
+        # Not sure what detection_expiry_seconds should be:
+        self.detection_expiry_seconds = DEFAULT_DETECTION_EXPIRY_SECONDS
 
     async def connect(self):
         failed_count = 0
@@ -189,7 +192,7 @@ class NotificationPuller:
             try:
                 log.info(F"NotificationPuller, connecting to {self.camera_id} ...")
                 await self.target_camera.onvif.update_xaddrs()
-                interval_time = (timedelta(seconds=60))
+                interval_time = (timedelta(seconds=self.detection_expiry_seconds))
                 self.pullpoint_manager = await self.target_camera.onvif.create_pullpoint_manager(
                     interval_time,
                     subscription_lost_callback=self.recover_subscription)

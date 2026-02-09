@@ -7,15 +7,13 @@ onvifeye: ONVIF event monitor and clip recorder
 > millage may vary.
 
 Onvifeye is a camera ONVIF python client that monitors TP-Link Tapo-C225,
-Tapo-C125, and maybe others.  It saves videos, jpegs, and raises emails.  
-
-THe script may work with other cameras, but might require modification
-to cope with camera-specific event data.
+Tapo-C125, and other similar Tapo cameras.  Wehn an event occurs
+onvifeye saves videos, jpegs, and optionally raises emails.  
 
 Onvifeye includes the following features:
 
  - Extremely low CPU usage, leaning on the cameras to do continuous monitoring,
-   and only responding when cameras raise events.
+   and only responding when cameras raise ONVIF events.
  - Low disk usage, only obtaining clips and images when events occur.
  - Monitoring for event types (for example, IsPerson, IsPet, IsMotion).
  - Download of video clips of events via RSTP (Tapo-C225/C125 RSTP majorStream or minorStream).
@@ -47,8 +45,8 @@ Required libraries
 ===================
 
 Beyond standard Python3, the following additional libraries are required:
- - onvif-zeep-async (pip install onvif-zeep-async)
- - ffmpeg-python (pip3 install ffmpeg-python). __Take care not to confuse
+ - onvif-zeep-async (`pip3 install onvif-zeep-async`)
+ - ffmpeg-python (`pip3 install ffmpeg-python`). __Take care not to confuse
    ffmpeg-python with python-ffmpeg the two are different ffmpeg python
    implementations.__
 
@@ -57,13 +55,15 @@ Description
 
 Onvifeye works by pulling notifications from ONVIF feed.  When notified
 of detection event, the ONVIF related RSTP feed is used to stream video
-and jpegs to local storage, plus an optional external handling script/program
-may be triggered.
+and jpegs to local storage. An optional external handling script/program
+may be triggered to perform additional tasks, for example, onvif-email.py
+dispatches an email including an attachment image of the event.
 
-Onvifeye will handle a sequence of continuous detection notifications as a single
-event. For example, onvifeye regards a sequence of notifications that include
-_IsPerson=True_ as part of a single event.  If there are no following 
-notifications within 60 seconds, the event expires.
+TAPO ONVIF events arrive as a cascade of many detection notifications
+that continue throughout the duration of the event.
+Onvifeye handles such a sequence of continuous notifications as a single
+event. If there are no following notifications within 60 seconds, the event
+is determined to have finished (expired).
 
 Getting Started
 ---------------
