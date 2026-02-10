@@ -60,6 +60,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>.
 
 ----------
 """
+from __future__ import annotations
+
 import argparse
 import asyncio
 import glob
@@ -72,7 +74,7 @@ import sys
 import termios
 import time
 import traceback
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime, timedelta
 from functools import partial
@@ -168,10 +170,10 @@ class TargetCamera:
         self.config = camera_config
         self.onvif = ONVIFCamera(
             camera_config.camera_ip_addr,
-            camera_config.camera_onvif_port,
+            int(camera_config.camera_onvif_port),
             camera_config.camera_username,
             camera_config.camera_password,
-            CAMERA_ONVIF_WSDL_DIR)
+            str(CAMERA_ONVIF_WSDL_DIR))
         self.detections: Dict[str, datetime] = {}
 
 
@@ -371,7 +373,7 @@ def execute_external_handler(handler_exe: Path, camera_id, relevant_detections: 
         log.critical(f'execute_external_handler: Event executable {handler_exe.as_posix()} is not runnable.')
 
 
-class EventHandler:
+class EventHandler(ABC):
 
     def __init__(self, target_camera: TargetCamera):
         super().__init__()
@@ -494,7 +496,6 @@ class EventExecHandler(EventHandler):
 
     async def handle_events(self):
         while not self.stop_requested:
-            target_events = self.target_camera.config.camera_target_events
             if relevant_detections := {event: etime
                                        for event, etime in self.target_camera.detections.items()
                                        if self.target_camera.config.is_event_targeted(event)}:
@@ -531,7 +532,7 @@ async def discover_devices():
 
 async def main():
 
-    def exit_handler(signum, frame):
+    def exit_handler(signum, _):
         log.warning(f'{signal.strsignal(signum)} signalled - exiting')
         notification_puller.stop_requested = True
         video_writer.stop_requested = True
@@ -573,7 +574,7 @@ async def main():
         log.warning(f'Creating config file {save_path.as_posix()} and exiting.'
                     f' Please check it, further customise it for your camera, then restart.')
         camera_config = CameraConfig()
-        for arg, value in vars(camera_config).items():  # initialise from command line args - if any
+        for arg, value in vars(camera_config).items():  # initialize from command line args - if any
             vars(camera_config)[arg] = value
         with open(save_path, 'w') as fp:
             json.dump(camera_config, fp, default=vars, indent=4)
@@ -629,15 +630,11 @@ async def main():
                 event_exec_runner = EventExecHandler(target_camera, Path(camera_config.camera_event_exec))
                 _ = watch_task_group.create_task(event_exec_runner.handle_events())
 
-
     await watch_task_group
 
 if __name__ == '__main__':
     if sys.stdin.isatty():  # ffmpeg is doing something to the tty - save attributes for restoration at exit
         tty_fd = sys.stdin.fileno()
-        tty_attrs = termios.tcgetattr(tty_fd)
-    if sys.stdin.isatty():
-        tty_fd = sys.stderr.fileno()
         tty_attrs = termios.tcgetattr(tty_fd)
     else:
         tty_attrs = None
