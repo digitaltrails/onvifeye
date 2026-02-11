@@ -189,25 +189,30 @@ class NotificationPuller:
         self.detection_expiry_seconds = DEFAULT_DETECTION_EXPIRY_SECONDS
 
     async def connect(self):
-        failed_count = 0
+        attempt_count = 1
         while self.pullpoint_service is None:
             try:
-                log.info(F"NotificationPuller, connecting to {self.camera_id} ...")
+                if attempt_count == 1:
+                    log.info(F"NotificationPuller: {self.camera_id} connecting.")
                 await self.target_camera.onvif.update_xaddrs()
                 interval_time = (timedelta(seconds=self.detection_expiry_seconds))
                 self.pullpoint_manager = await self.target_camera.onvif.create_pullpoint_manager(
                     interval_time,
-                    subscription_lost_callback=self.recover_subscription)
+                    subscription_lost_callback=self.subscription_lost)
                 self.pullpoint_service = await self.target_camera.onvif.create_pullpoint_service()
-                log.info(F"NotificationPuller, connected to {self.camera_id} ...")
-            except httpx.HTTPError as e:
-                failed_count += 1
-                if failed_count == 1:
-                    log.warning(f'Notification Puller {self.camera_id} http error, retrying'
+                log.info(F"NotificationPuller: {self.camera_id} connected on {attempt_count=}")
+            except (httpx.HTTPError, Exception) as e:
+                if attempt_count == 1:
+                    log.warning(f'NotificationPuller: {self.camera_id} connect: http error, retrying'
                                 f' every {EXCEPTION_RETRY_WAIT_SECONDS} seconds. [{repr(e)}]')
+                elif log.isEnabledFor(logging.DEBUG):
+                    log.debug(f'NotificationPuller: {self.camera_id} {attempt_count=} connect: http error, retrying'
+                                f' every {EXCEPTION_RETRY_WAIT_SECONDS} seconds. [{repr(e)}]')
+                attempt_count += 1
                 await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
 
-    def recover_subscription(self):
+    def subscription_lost(self):
+        log.info(F"NotificationPuller: {self.camera_id} subscription_lost called.")
         # Not required because the listen() loops and reconnects on Exceptions?
         pass
 
@@ -220,7 +225,7 @@ class NotificationPuller:
                 pullpoint_req.MessageLimit = 5000
                 pullpoint_req.Timeout = (timedelta(days=0, hours=0,
                                                    seconds=self.detection_expiry_seconds))
-                log.info(F"Listening, pulling messages from {self.camera_id} ...")
+                log.info(F"NotificationPuller: {self.camera_id} listening, pulling messages ...")
                 while not self.stop_requested:
                     try:
                         # throws httpx.RemoteProtocolError if it times out
@@ -228,7 +233,7 @@ class NotificationPuller:
                         if camera_messages and camera_messages['NotificationMessage']:
                             for notification_msg in camera_messages['NotificationMessage']:
                                 if log.isEnabledFor(logging.DEBUG):  # Avoid expensive debugging
-                                    log.debug(f"Notification {self.camera_id} {notification_msg=}")
+                                    log.debug(f"NotificationPuller: {self.camera_id} {notification_msg=}")
                                 data = notification_msg['Message']['_value_1']['Data']
                                 for simple_item in data['SimpleItem']:
                                     type_of_detection, is_happening = simple_item['Name'], simple_item['Value'] == 'true'
@@ -236,11 +241,12 @@ class NotificationPuller:
                                         type_of_detection += EVENT_NOT_HAPPENING_SUFFIX
                                     if type_of_detection not in self.target_camera.detections:
                                         self.target_camera.detections[type_of_detection] = datetime.now()
-                                        log.info(f'Received {self.camera_id} {type_of_detection} event, added it to {self.target_camera.detections=}')
+                                        log.info(f'NotificationPuller: {self.camera_id} received {type_of_detection} event, added it to {self.target_camera.detections=}')
                         else:
                             await asyncio.sleep(0.1)
                     except httpx.RemoteProtocolError as nothing_ready:
-                        log.debug(f'NotificationPuller: No messages ready {self.camera_id}. [{repr(nothing_ready)}]')
+                        if log.isEnabledFor(logging.DEBUG):
+                            log.debug(f'NotificationPuller: {self.camera_id} No messages ready [{repr(nothing_ready)}]')
                         await asyncio.sleep(1.0)
                     finally:
                         now = datetime.now()
@@ -249,7 +255,7 @@ class NotificationPuller:
                             for name, first_seen_at in self.target_camera.detections.items()
                             if (now - first_seen_at).seconds > self.detection_expiry_seconds]:
                                 del self.target_camera.detections[type_of_detection]
-                                log.info(f"expire {self.camera_id} '{type_of_detection}': {first_seen_at} -> {self.target_camera.detections=}")
+                                log.info(f"NotificationPuller: {self.camera_id} expire '{type_of_detection}': {first_seen_at} -> {self.target_camera.detections=}")
             except Exception as e:
                 log.warning(f'Pull exception {self.camera_id}, will try again. [{repr(e)}]')
             finally:
@@ -613,15 +619,15 @@ async def main():
             _ = watch_task_group.create_task(notification_puller.listen())
             if camera_config.camera_stills_stream_name:
                 if camera_config.camera_grab_stills_from_video:
-                    log.warning(f'Camera {camera_config.camera_id} set to camera_grab_stills_from_video, ignoring stream {camera_config.camera_stills_stream_name}')
+                    log.warning(f'ImageWriter: {camera_config.camera_id} set to camera_grab_stills_from_video, ignoring stream {camera_config.camera_stills_stream_name}')
                     image_feed = camera_config.camera_stream_name
                 else:
                     image_feed = camera_config.camera_stills_stream_name
-                log.info(f'Camera {camera_config.camera_id} still-image feed set to {image_feed}')
+                log.info(f'ImageWriter: {camera_config.camera_id} still-image feed set to {image_feed}')
                 image_writer = ImageWriter(target_camera, stream_name=image_feed)
                 _ = watch_task_group.create_task(image_writer.handle_events())
             if camera_config.camera_stream_name:
-                log.info(f'Camera {camera_config.camera_id} video feed set to {image_feed}')
+                log.info(f'ImageWriter: {camera_config.camera_id} video feed set to {image_feed}')
                 video_writer = VideoWriter(target_camera,
                                            stream_name=camera_config.camera_stream_name,
                                            clip_seconds=camera_config.camera_clip_seconds)
