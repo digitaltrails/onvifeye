@@ -121,19 +121,6 @@ VIDEO_DIR: Path = DATA_DIR / Path('videos')
 IMAGE_DIR = DATA_DIR / Path('images')
 
 
-def handle_task_exception(loop, context):
-    # context["message"] will always be there; but context["exception"] may not
-    msg = context.get("message", "No message")
-    exc = context.get('exception')
-    if exc:
-        log.exception(f"Caught task exception: {exc.__class__.__name__}: {exc}")
-    else:
-        log.error(f"Caught task exception: {msg}")
-
-loop = asyncio.get_event_loop()
-loop.set_exception_handler(handle_task_exception)
-
-
 class CameraConfig(object):
     def __init__(self,
                  camera_username = 'tapo-admin',
@@ -272,12 +259,12 @@ class NotificationPuller:
                                 del self.target_camera.detections[type_of_detection]
                                 log.info(f"{self.log_name} expire '{type_of_detection}': {first_seen_at} -> {self.target_camera.detections=}")
             except Exception as e:
-                log.warning(f'{self.log_name} Pull exception {self.camera_id}, will try again. [{repr(e)}]')
+                log.warning(f'{self.log_name} listen exception {self.camera_id}, will try again. [{repr(e)}]')
             finally:
                 try:
                     await self.disconnect()
                 except Exception as e2:
-                    log.warning(f'{self.log_name}  Pull exception {self.camera_id}, could not disconnect - ignoring. [{repr(e2)}]')
+                    log.warning(f'{self.log_name} listen exception {self.camera_id}, could not disconnect - ignoring. [{repr(e2)}]')
                 self.pullpoint_service = None
 
     async def disconnect(self):
@@ -652,7 +639,21 @@ async def main():
                 event_exec_runner = EventExecHandler(target_camera, Path(camera_config.camera_event_exec))
                 _ = watch_task_group.create_task(event_exec_runner.handle_events())
 
+    loop = asyncio.get_event_loop()
+    loop.set_exception_handler(handle_task_exception)
+
     await watch_task_group
+
+
+def handle_task_exception(loop, context):
+    # context["message"] will always be there; but context["exception"] may not
+    msg = context.get("message", "No message")
+    exc = context.get('exception')
+    if exc:
+        log.exception(f"Caught task exception: {exc.__class__.__name__}: {exc}")
+    else:
+        log.error(f"Caught task exception: {msg}")
+
 
 if __name__ == '__main__':
     if sys.stdin.isatty():  # ffmpeg is doing something to the tty - save attributes for restoration at exit
