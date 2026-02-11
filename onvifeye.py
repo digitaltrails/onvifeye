@@ -102,6 +102,7 @@ from onvif import ONVIFCamera, ONVIFService, ONVIFError
 from importlib import resources as imp_resources
 from urllib.parse import urlparse, quote
 from onvif.managers import PullPointManager
+import asyncio
 
 log = logging.getLogger('onvifeye')
 
@@ -118,6 +119,19 @@ CAMERA_CONFIG_DIR = CONFIG_DIR / Path('camera_conf')
 DATA_DIR = Path.home() / 'onvifeye'
 VIDEO_DIR: Path = DATA_DIR / Path('videos')
 IMAGE_DIR = DATA_DIR / Path('images')
+
+
+def handle_task_exception(loop, context):
+    # context["message"] will always be there; but context["exception"] may not
+    msg = context.get("message", "No message")
+    exc = context.get('exception')
+    if exc:
+        log.exception(f"Caught task exception: {exc.__class__.__name__}: {exc}")
+    else:
+        log.error(f"Caught task exception: {msg}")
+
+loop = asyncio.get_event_loop()
+loop.set_exception_handler(handle_task_exception)
 
 
 class CameraConfig(object):
@@ -426,7 +440,7 @@ class MediaSaverEventHandler(EventHandler):
         super().__init__(target_camera)
         self.camera_id = target_camera.config.camera_id
         self.stream_name = stream_name
-        self.log_name = f"{self.__class__.__name__}.{self.camera_id}.{self.stream_name}"
+        self.log_name = f"{self.__class__.__name__}: {self.camera_id}.{self.stream_name}"
         self.save_path = Path(target_camera.config.camera_save_folder)
         try:
             self.save_path.mkdir(exist_ok=True)
@@ -448,8 +462,9 @@ class MediaSaverEventHandler(EventHandler):
                 media_service = await self.target_camera.onvif.create_media_service()
                 log.info(f'{self.log_name}: Trying to connect to stream {self.stream_name}')
                 if rtsp_uri := await self._find_rtsp_uri(media_service, self.stream_name):
+                    if log.isEnabledFor(logging.DEBUG):   # Note the URI now contains the password!
+                        log.debug(f'{self.log_name}: Full URI for {self.stream_name}: {rtsp_uri=}')
                     log.info(f'{self.log_name}: Successfully connected to {self.stream_name}')
-                    log.debug(f'{self.log_name}: Stream {self.stream_name} {rtsp_uri=}')
                     while not self.stop_requested:
                         # Only save media on relevant non-False events.
                         if relevant_detections := {
