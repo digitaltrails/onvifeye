@@ -63,7 +63,6 @@ with this program. If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
 
 import argparse
-import asyncio
 import glob
 import json
 import logging
@@ -80,8 +79,7 @@ from datetime import datetime, timedelta
 from functools import partial
 from pathlib import Path
 from subprocess import Popen
-from types import FunctionType
-from typing import Dict
+from typing import Dict, Callable
 
 DEFAULT_DETECTION_EXPIRY_SECONDS = 60.0
 
@@ -389,7 +387,7 @@ class EventHandler(ABC):
         self.target_camera = target_camera
         self.handled: Dict[str, datetime] = {}
 
-    async def _find_rtsp_uri(self, media_service, stream_name) -> str:
+    async def _find_rtsp_uri(self, media_service, stream_name) -> str | None:
         rtsp_uri = None
         for profile in await media_service.GetProfiles():
             stream_setup = media_service.create_type('GetStreamUri')
@@ -439,8 +437,9 @@ class MediaSaverEventHandler(EventHandler):
         log.info(f"{self.log_name}: save path: {self.save_path.as_posix()}")
 
     @abstractmethod
-    def get_saver_function(self, rtsp_uri: str, relevant_detections: Dict[str, datetime]) -> FunctionType:
-        assert 'Abstract lacks definition'  # has to return a python (non-class) function that can be pickled
+    def get_saver_function(self, rtsp_uri: str, relevant_detections: Dict[str, datetime]) -> Callable:
+        assert 'Abstract lacks definition'
+        return lambda *args, **kwargs: None
 
     async def handle_events(self):
         previous_rerr = None
@@ -487,12 +486,12 @@ class VideoWriter(MediaSaverEventHandler):
         super().__init__(target_camera, stream_name)
         self.clip_seconds = clip_seconds
 
-    def get_saver_function(self, rtsp_uri: str, relevant_detections: Dict[str, datetime]) -> FunctionType:
+    def get_saver_function(self, rtsp_uri: str, relevant_detections: Dict[str, datetime]) -> Callable:
         return partial(save_video, self.target_camera.config, rtsp_uri, self.clip_seconds, relevant_detections)
 
 class ImageWriter(MediaSaverEventHandler):
 
-    def get_saver_function(self, rtsp_uri: str, relevant_detections: Dict[str, datetime]) -> FunctionType:
+    def get_saver_function(self, rtsp_uri: str, relevant_detections: Dict[str, datetime]) -> Callable:
         return partial(save_image, self.target_camera.config, rtsp_uri, relevant_detections,
                        self.target_camera.config.camera_grab_stills_from_video)
 
@@ -645,7 +644,7 @@ async def main():
     await watch_task_group
 
 
-def handle_task_exception(loop, context):
+def handle_task_exception(_, context):
     # context["message"] will always be there; but context["exception"] may not
     msg = context.get("message", "No message")
     exc = context.get('exception')
@@ -660,7 +659,8 @@ if __name__ == '__main__':
         tty_fd = sys.stdin.fileno()
         tty_attrs = termios.tcgetattr(tty_fd)
     else:
-        tty_attrs = None
+        tty_fd = None
+        tty_attrs = []
     try:
         asyncio.run(main())
     except Exception as e:
