@@ -7,7 +7,7 @@ onvifeye: ONVIF event monitor and clip recorder
 > millage may vary.
 
 Onvifeye is a camera ONVIF python client that monitors TP-Link Tapo-C225,
-Tapo-C125, and other similar Tapo cameras.  Wehn an event occurs
+Tapo-C125, and other similar Tapo cameras.  When an event occurs
 onvifeye saves videos, jpegs, and optionally raises emails.  
 
 Onvifeye includes the following features:
@@ -216,10 +216,10 @@ python3 ~/Projects/onvifeye/onvifeye-email.py DummyCameraId IsPerson/20250209-13
  > The email script is currently hard coded to expect images and videos to be
  > in the default location (edit the script to change it).
 
-Use in the presense of a Tapo 500 Hub
+Use in the presence of a Tapo 500 Hub
 -------------------------------------
 
-The __Tapo H500 hub__ defaults to setting each camera to fallback the H500's own 
+The __Tapo H500 hub__ defaults to setting each camera to fall back the H500's own 
 private WiFi SID/network when the camera's user-assigned WiFi SID/network 
 becomes unavailable (or is measured as having a poor RSSI value?). 
 
@@ -234,7 +234,7 @@ backup_ to off.
 You can tell if a camera is connecting to an H500's SID by checking the 
 SID listed for the Tapo App's _Camera-Settings Network-Connection_.  
 Additionally, touching the _WiFi-icon_ in the _Camera-Settings 
-Network-Connectioin_ will toggle the display of the measured RSSI
+Network-Connection_ will toggle the display of the measured RSSI
 (which can be handy when deciding where to place a camera).
 
 I'm unsure if a Camera will return to the user assigned WiFi when
