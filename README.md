@@ -85,14 +85,13 @@ a normal user account, for example:
 # Create a python virtual environment, for example:
 
 python3 -m venv ~/onvif-venv
-~/onvif-venv/bin/pip3 install onvif-zeep-async==3.2.5
+~/onvif-venv/bin/pip3 install onvif-zeep-async
 ~/onvif-venv/bin/pip3 install ffmpeg-python
 ```
-> [!IMPORTANT]
-> I'm using `onvif-zeep-async==3.2.5`. Version 4.0.4 appears to also work, 
-> but it raises periodic ServerDisconnectedError, and I'm not sure if that 
-> might cause events to be missed.
-
+> [!NOTE]
+> I've been using `onvif-zeep-async 3.2.5` for several months with no
+> issues.  Version `onvif-zeep-async 4.0` also works, but is less 
+> tested by me (it uses `aiohttp`).
 
 ### Executing the program
 

@@ -101,8 +101,10 @@ from importlib import resources as imp_resources
 from urllib.parse import urlparse, quote
 from onvif.managers import PullPointManager
 import asyncio
+import aiohttp
 
 log = logging.getLogger('onvifeye')
+#logging.getLogger('onvif').setLevel(logging.DEBUG)
 
 os.environ['OPENCV_FFMPEG_LOGLEVEL'] = '8'
 logging.getLogger("httpx").setLevel(logging.CRITICAL)
@@ -244,7 +246,11 @@ class NotificationPuller:
                                         log.info(f'{self.log_name} received {type_of_detection} event, added it to {self.target_camera.detections=}')
                         else:
                             await asyncio.sleep(0.1)
-                    except httpx.RemoteProtocolError as nothing_ready:
+                    except (aiohttp.ServerDisconnectedError, httpx.RemoteProtocolError) as nothing_ready:
+                        # These exceptions appear to occur if there is nothing available, but, curiously,
+                        # they can occur more frequently than self.detection_expiry_seconds
+                        # onvif-zeep-async 3.2.5 throws httpx.RemoteProtocolError
+                        # onvif-zeep-async 4.0.4 throws aiohttp.ServerDisconnectedError (every ~10 seconds).
                         if log.isEnabledFor(logging.DEBUG):
                             log.debug(f'{self.log_name} No messages ready [{repr(nothing_ready)}]')
                         await asyncio.sleep(1.0)
