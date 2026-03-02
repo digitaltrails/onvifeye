@@ -5,6 +5,9 @@ onvifeye: ONVIF event monitor and clip recorder
 > This code is now mature. I'm using it to monitor three different 
 > models of Tapo cameras, but there are relatively few users, so your 
 > millage may vary.
+> 
+> 2026/03/02 Pushed a fix for repeated connection issues that may occur
+> if a camera is rebooted while onvifeye is running.
 
 Onvifeye is a camera ONVIF python client that monitors TP-Link Tapo-C225,
 Tapo-C125, and other similar Tapo cameras.  When an event occurs
