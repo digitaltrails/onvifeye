@@ -298,7 +298,9 @@ Issues
 A camera going offline may sometimes cause the script to stop working, I need
 to track down and handle any exceptions that occur.  This may be due to
 cameras falling back from user WiFi to Tapo H500 Hub WiFi - needs further
-investigation.
+investigation. It may be that more recent versions of onvif-zeep-async 
+might behave better in this respect.  As a workaound
+the script could be periodically restarted. 
 
 Exceptions within supporting libraries sometimes cause the onvifeye.py script
 to exit. I haven't been able to track the cause down or figure out 
