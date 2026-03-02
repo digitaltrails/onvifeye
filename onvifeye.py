@@ -273,28 +273,41 @@ class NotificationPuller:
                                 del self.target_camera.detections[type_of_detection]
                                 log.info(f"{self.log_name} expire '{type_of_detection}': {first_seen_at} -> {self.target_camera.detections=}")
             except Exception as listen_exception:
-                log.warning(f'{self.log_name} listen exception {self.camera_id}, will try again. {listen_exception.__class__.__module__}: [{repr(listen_exception)}]')
+                log.warning(f'{self.log_name} listen: unexpected exception. {listen_exception.__class__.__module__}: [{repr(listen_exception)}]')
             finally:
                 try:
                     await self.disconnect()
                 except Exception as disconnect_exception:
-                    log.warning(f'{self.log_name} listen exception {self.camera_id}, could not disconnect - ignoring. {disconnect_exception.__class__.__module__}: [{repr(disconnect_exception)}]')
-                log.warning(f'{self.log_name} connection problem - reconnecting after {EXCEPTION_RETRY_WAIT_SECONDS} seconds')
-                await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
+                    log.warning(f'{self.log_name} listen: ignoring disconnect exception. {disconnect_exception.__class__.__module__}: [{repr(disconnect_exception)}]')
                 self.pullpoint_service = None
+                if not self.stop_requested:
+                    log.warning(f'{self.log_name} listen: attempting reconnect in {EXCEPTION_RETRY_WAIT_SECONDS} seconds')
+                    await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
 
     async def disconnect(self):
+        errors = []
         try:
             if self.pullpoint_service:
-                await self.pullpoint_service.close()
+                try:
+                    await self.pullpoint_service.close()
+                except Exception as sce:
+                    errors.append(f"pullpoint_service.close: {sce}")
             if self.pullpoint_manager:
-                await self.pullpoint_manager.stop()
+                try:
+                    await self.pullpoint_manager.shutdown()
+                except Exception as mse:
+                    errors.append(f"pullpoint_manager.shutdown: {mse}")
             if self.target_camera.onvif:
-                await self.target_camera.onvif.close()
+                try:
+                    await self.target_camera.onvif.close()
+                except Exception as oce:
+                    errors.append(f"target_camera.onvif.close: {oce}")
         finally:
             self.pullpoint_service = None
             self.pullpoint_manager = None
             self.target_camera.onvif = None
+        if errors:
+            raise Exception("Disconnection errors: " + "; ".join(errors))
 
 
 def save_video(camera_config: CameraConfig, rtsp_uri: str, clip_seconds: int, detections: Dict[str, datetime]):
