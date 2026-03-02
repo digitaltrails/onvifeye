@@ -81,7 +81,15 @@ from pathlib import Path
 from subprocess import Popen
 from typing import Dict, Callable
 
+MAX_FAIL_TO_POST_ERRORS = 5
+
+WAIT_NO_NOTIFICATIONS_SECONDS = 0.1
+
+WAIT_NO_NOTIFICATIONS_EXCEPTION_SECONDS = 5.0
+
 DEFAULT_DETECTION_EXPIRY_SECONDS = 60.0
+
+WAIT_FOR_LOCAL_VIDEO_SECONDS = 5.0
 
 EVENT_NOT_HAPPENING_SUFFIX = '_False'
 
@@ -169,12 +177,7 @@ class TargetCamera:
     def __init__(self, camera_config: CameraConfig):
         super().__init__()
         self.config = camera_config
-        self.onvif = ONVIFCamera(
-            camera_config.camera_ip_addr,
-            int(camera_config.camera_onvif_port),
-            camera_config.camera_username,
-            camera_config.camera_password,
-            str(CAMERA_ONVIF_WSDL_DIR))
+        self.onvif = None
         self.detections: Dict[str, datetime] = {}
 
 
@@ -196,6 +199,13 @@ class NotificationPuller:
             try:
                 if attempt_count == 1:
                     log.info(F"{self.log_name} connecting.")
+                camera_config = self.target_camera.config
+                self.target_camera.onvif = ONVIFCamera(
+                    camera_config.camera_ip_addr,
+                    int(camera_config.camera_onvif_port),
+                    camera_config.camera_username,
+                    camera_config.camera_password,
+                    str(CAMERA_ONVIF_WSDL_DIR))
                 await self.target_camera.onvif.update_xaddrs()
                 interval_time = (timedelta(seconds=self.detection_expiry_seconds))
                 self.pullpoint_manager = await self.target_camera.onvif.create_pullpoint_manager(
@@ -203,13 +213,13 @@ class NotificationPuller:
                     subscription_lost_callback=self.subscription_lost)
                 self.pullpoint_service = await self.target_camera.onvif.create_pullpoint_service()
                 log.info(F"{self.log_name} connected on {attempt_count=}")
-            except (httpx.HTTPError, Exception) as e:
+            except (httpx.HTTPError, Exception) as httpx_exception:
                 if attempt_count == 1:
                     log.warning(f'{self.log_name} connect: http error, retrying'
-                                f' every {EXCEPTION_RETRY_WAIT_SECONDS} seconds. [{repr(e)}]')
+                                f' every {EXCEPTION_RETRY_WAIT_SECONDS} seconds. [{repr(httpx_exception)}]')
                 elif log.isEnabledFor(logging.DEBUG):
                     log.debug(f'{self.log_name} {attempt_count=} connect: http error, retrying'
-                                f' every {EXCEPTION_RETRY_WAIT_SECONDS} seconds. [{repr(e)}]')
+                                f' every {EXCEPTION_RETRY_WAIT_SECONDS} seconds. [{repr(httpx_exception)}]')
                 attempt_count += 1
                 await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
 
@@ -245,7 +255,7 @@ class NotificationPuller:
                                         self.target_camera.detections[type_of_detection] = datetime.now()
                                         log.info(f'{self.log_name} received {type_of_detection} event, added it to {self.target_camera.detections=}')
                         else:
-                            await asyncio.sleep(0.1)
+                            await asyncio.sleep(WAIT_NO_NOTIFICATIONS_SECONDS)
                     except (aiohttp.ServerDisconnectedError, httpx.RemoteProtocolError) as nothing_ready:
                         # These exceptions appear to occur if there is nothing available, but, curiously,
                         # they can occur more frequently than self.detection_expiry_seconds
@@ -253,7 +263,7 @@ class NotificationPuller:
                         # onvif-zeep-async 4.0.4 throws aiohttp.ServerDisconnectedError (every ~10 seconds).
                         if log.isEnabledFor(logging.DEBUG):
                             log.debug(f'{self.log_name} No messages ready [{repr(nothing_ready)}]')
-                        await asyncio.sleep(1.0)
+                        await asyncio.sleep(WAIT_NO_NOTIFICATIONS_EXCEPTION_SECONDS)  # Don't flood the camera with requests
                     finally:
                         now = datetime.now()
                         for type_of_detection, first_seen_at in [
@@ -262,13 +272,15 @@ class NotificationPuller:
                             if (now - first_seen_at).seconds > self.detection_expiry_seconds]:
                                 del self.target_camera.detections[type_of_detection]
                                 log.info(f"{self.log_name} expire '{type_of_detection}': {first_seen_at} -> {self.target_camera.detections=}")
-            except Exception as e:
-                log.warning(f'{self.log_name} listen exception {self.camera_id}, will try again. [{repr(e)}]')
+            except Exception as listen_exception:
+                log.warning(f'{self.log_name} listen exception {self.camera_id}, will try again. {listen_exception.__class__.__module__}: [{repr(listen_exception)}]')
             finally:
                 try:
                     await self.disconnect()
-                except Exception as e2:
-                    log.warning(f'{self.log_name} listen exception {self.camera_id}, could not disconnect - ignoring. [{repr(e2)}]')
+                except Exception as disconnect_exception:
+                    log.warning(f'{self.log_name} listen exception {self.camera_id}, could not disconnect - ignoring. {disconnect_exception.__class__.__module__}: [{repr(disconnect_exception)}]')
+                log.warning(f'{self.log_name} connection problem - reconnecting after {EXCEPTION_RETRY_WAIT_SECONDS} seconds')
+                await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
                 self.pullpoint_service = None
 
     async def disconnect(self):
@@ -277,9 +289,12 @@ class NotificationPuller:
                 await self.pullpoint_service.close()
             if self.pullpoint_manager:
                 await self.pullpoint_manager.stop()
+            if self.target_camera.onvif:
+                await self.target_camera.onvif.close()
         finally:
             self.pullpoint_service = None
             self.pullpoint_manager = None
+            self.target_camera.onvif = None
 
 
 def save_video(camera_config: CameraConfig, rtsp_uri: str, clip_seconds: int, detections: Dict[str, datetime]):
@@ -300,12 +315,12 @@ def save_video(camera_config: CameraConfig, rtsp_uri: str, clip_seconds: int, de
         log.info(f"Waiting on  {process.pid=} {timeout_seconds=}")
         out, err = process.communicate(timeout=timeout_seconds)
         log_ffmpeg_output(out, err)
-    except subprocess.TimeoutExpired as e:
-        log.error(f"May not have saved {save_path.as_posix()} due to ffmpeg timeout error {e}")
+    except subprocess.TimeoutExpired as ffmpeg_error_exception:
+        log.error(f"May not have saved {save_path.as_posix()} due to ffmpeg timeout error {ffmpeg_error_exception}")
         return
-    except ffmpeg.Error as e:
-        log.error(f"May not have saved {save_path.as_posix()} due to ffmpeg error {e}")
-        log_ffmpeg_output(e.stdout, e.stderr, as_error=True)
+    except ffmpeg.Error as ffmpeg_error_exception:
+        log.error(f"May not have saved {save_path.as_posix()} due to ffmpeg error {ffmpeg_error_exception}")
+        log_ffmpeg_output(ffmpeg_error_exception.stdout, ffmpeg_error_exception.stderr, as_error=True)
         return
     finally:
         if camera_config.is_event_targeted(VIDEO_ENDED_SYNTHETIC_EVENT):
@@ -318,8 +333,8 @@ def save_video(camera_config: CameraConfig, rtsp_uri: str, clip_seconds: int, de
 def extract_frame_to_image(camera_config: CameraConfig, incident_time: datetime, image_save_path: Path):
     # Extract from the file we have already written
     video_path = generate_save_path(camera_config.camera_id, incident_time, VIDEO_DIR, 'mp4')
-    time.sleep(4.0)
-    for i in range(1, 5):
+    time.sleep(WAIT_FOR_LOCAL_VIDEO_SECONDS)  # Initial wait
+    for i in range(1, int(WAIT_FOR_LOCAL_VIDEO_SECONDS)):  # See if we can grab a frame
         if video_path.exists():
             try:
                 log.info(f"extract_frame_to_image: writing {image_save_path.as_posix()} from {video_path.as_posix()}")
@@ -327,9 +342,9 @@ def extract_frame_to_image(camera_config: CameraConfig, incident_time: datetime,
                     image_save_path.as_posix(), vframes=1, qscale=2).run(
                     capture_stdout=False, capture_stderr=True, overwrite_output=True, quiet=True)
                 log_ffmpeg_output(out, err)
-            except ffmpeg.Error as e:
-                log.error(f"ffmpeg error {e}")
-                log_ffmpeg_output(e.stdout, e.stderr, as_error=True)
+            except ffmpeg.Error as ffmpeg_error_exception:
+                log.error(f"ffmpeg error {ffmpeg_error_exception}")
+                log_ffmpeg_output(ffmpeg_error_exception.stdout, ffmpeg_error_exception.stderr, as_error=True)
             log.info(f'extract_frame_to_image: closed {image_save_path.as_posix()}')
             return
         time.sleep(1.0)
@@ -353,9 +368,9 @@ def save_image(camera_config: CameraConfig, rtsp_uri: str, detections: Dict[str,
             filename=save_path.as_posix(), vframes=1,
             loglevel=8).run(capture_stdout=False, capture_stderr=True, overwrite_output=True, quiet=True)
         log_ffmpeg_output(out, err)
-    except ffmpeg.Error as e:
-        log.error(f"ffmpeg error {e}")
-        log_ffmpeg_output(e.stdout, e.stderr, as_error=True)
+    except ffmpeg.Error as ffmpeg_error_exception:
+        log.error(f"ffmpeg error {ffmpeg_error_exception}")
+        log_ffmpeg_output(ffmpeg_error_exception.stdout, ffmpeg_error_exception.stderr, as_error=True)
         return
     log.info(f'closed {save_path.as_posix()}')
 
@@ -437,8 +452,8 @@ class MediaSaverEventHandler(EventHandler):
             self.save_path.mkdir(exist_ok=True)
             if not os.access(self.save_path, os.W_OK):
                 raise PermissionError(f"path {self.save_path} is not writable")
-        except (PermissionError, FileNotFoundError) as e:
-            log.error(f"{self.log_name}: {str(e)}")
+        except (PermissionError, FileNotFoundError) as file_access_exception:
+            log.error(f"{self.log_name}: {str(file_access_exception)}")
             sys.exit(1)
         log.info(f"{self.log_name}: save path: {self.save_path.as_posix()}")
 
@@ -478,10 +493,10 @@ class MediaSaverEventHandler(EventHandler):
                              f"Is this the correct stream name? "
                              f"Waiting {EXCEPTION_RETRY_WAIT_SECONDS} seconds in case it becomes available.")
                     await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
-            except ONVIFError as e:
-                rerr = repr(e)
+            except ONVIFError as onvif_exception:
+                rerr = repr(onvif_exception)
                 if rerr != previous_rerr:
-                    log.warning(f"{self.log_name}: ONVIF Error (may not be serious): [{repr(e)}]")
+                    log.warning(f"{self.log_name}: ONVIF Error (may not be serious): [{repr(onvif_exception)}]")
                     log.info(f'{self.log_name}: Assuming {self.log_name} camera is unavailable, will keep retrying every {EXCEPTION_RETRY_WAIT_SECONDS} seconds.')
                 await asyncio.sleep(EXCEPTION_RETRY_WAIT_SECONDS)
 
@@ -620,29 +635,37 @@ async def main():
         target_camera = TargetCamera(camera_config)
         target_camera_list.append(target_camera)
 
+    try:
+        async with asyncio.TaskGroup() as watch_task_group:
+            for target_camera in target_camera_list:
+                notification_puller = NotificationPuller(target_camera)
+                _ = watch_task_group.create_task(notification_puller.listen())
+                if camera_config.camera_stills_stream_name:
+                    if camera_config.camera_grab_stills_from_video:
+                        log.warning(f'ImageWriter: {camera_config.camera_id} set to camera_grab_stills_from_video, ignoring stream {camera_config.camera_stills_stream_name}')
+                        image_feed = camera_config.camera_stream_name
+                    else:
+                        image_feed = camera_config.camera_stills_stream_name
+                    log.info(f'ImageWriter: {camera_config.camera_id} still-image feed set to {image_feed}')
+                    image_writer = ImageWriter(target_camera, stream_name=image_feed)
+                    _ = watch_task_group.create_task(image_writer.handle_events())
+                if camera_config.camera_stream_name:
+                    log.info(f'ImageWriter: {camera_config.camera_id} video feed set to {image_feed}')
+                    video_writer = VideoWriter(target_camera,
+                                               stream_name=camera_config.camera_stream_name,
+                                               clip_seconds=camera_config.camera_clip_seconds)
+                    _ = watch_task_group.create_task(video_writer.handle_events())
+                if camera_config.camera_event_exec:
+                    event_exec_runner = EventExecHandler(target_camera, Path(camera_config.camera_event_exec))
+                    _ = watch_task_group.create_task(event_exec_runner.handle_events())
+    except* Exception as task_group_exception:
+        log.exception(f"Caught taskgroup exception: {task_group_exception.__class__.__name__}: {task_group_exception}")
+        # TODO - maybe need to restart?
+        # def restart_script():
+        #     # sys.executable is the path to the python interpreter
+        #     # sys.argv contains the script name and all arguments
+        #     os.execv(sys.executable, [sys.executable] + sys.argv)
 
-    async with asyncio.TaskGroup() as watch_task_group:
-        for target_camera in target_camera_list:
-            notification_puller = NotificationPuller(target_camera)
-            _ = watch_task_group.create_task(notification_puller.listen())
-            if camera_config.camera_stills_stream_name:
-                if camera_config.camera_grab_stills_from_video:
-                    log.warning(f'ImageWriter: {camera_config.camera_id} set to camera_grab_stills_from_video, ignoring stream {camera_config.camera_stills_stream_name}')
-                    image_feed = camera_config.camera_stream_name
-                else:
-                    image_feed = camera_config.camera_stills_stream_name
-                log.info(f'ImageWriter: {camera_config.camera_id} still-image feed set to {image_feed}')
-                image_writer = ImageWriter(target_camera, stream_name=image_feed)
-                _ = watch_task_group.create_task(image_writer.handle_events())
-            if camera_config.camera_stream_name:
-                log.info(f'ImageWriter: {camera_config.camera_id} video feed set to {image_feed}')
-                video_writer = VideoWriter(target_camera,
-                                           stream_name=camera_config.camera_stream_name,
-                                           clip_seconds=camera_config.camera_clip_seconds)
-                _ = watch_task_group.create_task(video_writer.handle_events())
-            if camera_config.camera_event_exec:
-                event_exec_runner = EventExecHandler(target_camera, Path(camera_config.camera_event_exec))
-                _ = watch_task_group.create_task(event_exec_runner.handle_events())
 
     loop = asyncio.get_event_loop()
     loop.set_exception_handler(handle_task_exception)
@@ -669,9 +692,9 @@ if __name__ == '__main__':
         tty_attrs = []
     try:
         asyncio.run(main())
-    except Exception as e:
+    except Exception as asyncio_run_exception:
         trace_text = traceback.format_exc()
-        log.error(f'Exiting due to exception {e} {trace_text}')
+        log.error(f'Exiting due to exception {asyncio_run_exception} {trace_text}')
     finally:
         log.info('Cleaning up...')
         if tty_attrs:   # ffmpeg is doing something to the tty - restore it
