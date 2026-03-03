@@ -298,17 +298,16 @@ journalctl --user --boot --follow
 Issues
 ------
 
-A camera going offline may sometimes cause the script to stop working, I need
-to track down and handle any exceptions that occur.  This may be due to
-cameras falling back from user WiFi to Tapo H500 Hub WiFi - needs further
-investigation. It may be that more recent versions of onvif-zeep-async 
-might behave better in this respect.  As a workaound
-the script could be periodically restarted. 
+A camera going offline may sometimes cause the script to stop receiving
+events after it comes back online. I think
+this was an error in my code. In the event of http communication errors, I 
+needed to discard and create new onvif objects. I've updated the code to do so.
+Hopefully this should no longer be an issue.
 
 Exceptions within supporting libraries sometimes cause the onvifeye.py script
-to exit. I haven't been able to track the cause down or figure out 
-where to catch these exceptions. If you want the script to stay running 
-constantly, you might need to have a wrapper-script restart it on exit.
+to exit. I've tracked down the cause of many of these exceptions, perhaps all of them.
+If you want to be completely sure that the script stays running, 
+you might have a wrapper-script restart it on exit.
 When running as a systemd service, restarts can be accomplished by setting 
 `Restart=always` (systemd automatically handles too-frequent restarts).
 
