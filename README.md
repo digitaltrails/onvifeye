@@ -15,7 +15,7 @@ onvifeye saves videos, jpegs, and optionally raises emails.
 
 Onvifeye includes the following features:
 
- - Extremely low CPU usage, leaning on the cameras to do continuous monitoring,
+ - Extremely low CPU usage, relying on the cameras to do continuous monitoring,
    and only responding when cameras raise ONVIF events.
  - Low disk usage, only obtaining clips and images when events occur.
  - Monitoring for event types (for example, IsPerson, IsPet, IsMotion).
@@ -251,14 +251,10 @@ I suspect the latter.
 User systemd service
 --------------------
 
-I'm experimenting with running the script as a systemd user service.
-I've had the service running for about a month with no issues, it 
-handles the camera going in and out of private mode, it has been 
-saving videos and sending emails for person-detection events.
-
-I set up a user service that lingers after logout and linger also means 
-it will restart on a reboot.  I set up a user such as ovadmin, installed
-the scripts and the required environment, and set the user to linger.
+I run the script as a systemd user service.  I set up a separate user login, installed 
+the scripts and the required environment, and set the login account to _linger_.
+Setting _linger_ means the service will remain running after 
+logout and also restart on a reboot.
 ```commandline
 loginctl enable-linger ovadmin
 loginctl list-users
@@ -301,8 +297,8 @@ Issues
 A camera going offline may sometimes cause the script to stop receiving
 events after it comes back online. I think
 this was an error in my code. In the event of http communication errors, I 
-needed to discard and create new onvif objects. I've updated the code to do so.
-Hopefully this should no longer be an issue.
+needed to discard and create new onvif objects. I've updated the code,
+hopefully this should no longer be an issue.
 
 Exceptions within supporting libraries sometimes cause the onvifeye.py script
 to exit. I've tracked down the cause of many of these exceptions, perhaps all of them.
@@ -315,13 +311,14 @@ Something from ffmpeg seems to write to the tty in a way that makes it
 unusable after terminating the script.  I've now added code to check if
 either stdin or stout is a tty, if yes, the tty attributes are saved
 at startup and restored at exit. This should hopefully solve the
-issue if/when in occurs (but this is untested).
+issue if/when in occurs (I haven't seen a repeat of this issue since putting
+the fix in place).
 
 Due to time delays receiving and processing ONVIF notification, the 
 script might not capture video for the very beginning of an event.
 
 I expect that cameras other than the C225/C125 may report detection events 
-differently.  The code needs to be enhanced to abstract/separate the 
+differently.  The code may need to be enhanced to abstract/separate the 
 detection-parsing so it is determined by camera-model.
 
 The json parsing of config files doesn't produce very friendly error
