@@ -71,14 +71,20 @@ def main():
         message = (f'Camera: {camera_id}\n\n' +
                    '\n'.join([ f'{k.removeprefix("Is")} detected at {v}'
                               for k, v in detections.items()]))
+        when_str = list(detections.values())[0]
         attach_filename = None
-        jpeg_filename = Path.home() / 'onvifeye' / 'images' / camera_id / f'{list(detections.values())[0]}.jpg'
+        jpeg_path = Path.home() / 'onvifeye' / 'images' / camera_id
+        jpeg_filename = jpeg_path / f'{when_str}.jpg'
         log.info(f"looking for {jpeg_filename.as_posix()}")
         # print(f"looking for {jpeg_filename.as_posix()}")
         for _ in range(10):  # give up after 10 seconds
             if jpeg_filename.exists():
                 break
             time.sleep(1)
+        if not jpeg_filename.exists():  # May be multiple events, look for something close
+            for jpeg_filename in sorted(jpeg_path.glob(f"{when_str[:-2]}*.jpg"), reverse=True):
+                log.info(f"found close match {jpeg_filename.as_posix()}")
+                message += f"\nFound close match {jpeg_filename.as_posix()}"
         if jpeg_filename.exists():
             attach_filename = jpeg_filename
         else:

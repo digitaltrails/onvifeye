@@ -452,7 +452,7 @@ class EventHandler(ABC):
     async def handle_events(self):
         pass
 
-
+# Loops checking for events and writes out a video for any specified as notable
 class MediaSaverEventHandler(EventHandler):
 
     def __init__(self, target_camera: TargetCamera, stream_name):
@@ -529,7 +529,7 @@ class ImageWriter(MediaSaverEventHandler):
         return partial(save_image, self.target_camera.config, rtsp_uri, relevant_detections,
                        self.target_camera.config.camera_grab_stills_from_video)
 
-
+# Loops checking for events and then executes an external program
 class EventExecHandler(EventHandler):
 
     def __init__(self, target_camera: TargetCamera, handler_exe: Path):
