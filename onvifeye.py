@@ -345,23 +345,21 @@ def save_video(camera_config: CameraConfig, rtsp_uri: str, clip_seconds: int, de
 
 def extract_frame_to_image(camera_config: CameraConfig, incident_time: datetime, image_save_path: Path):
     # Extract from the file we have already written
-    video_path = generate_save_path(camera_config.camera_id, incident_time, VIDEO_DIR, 'mp4')
     time.sleep(WAIT_FOR_LOCAL_VIDEO_SECONDS)  # Initial wait
-    for i in range(1, int(WAIT_FOR_LOCAL_VIDEO_SECONDS)):  # See if we can grab a frame
-        if video_path.exists():
-            try:
-                log.info(f"extract_frame_to_image: writing {image_save_path.as_posix()} from {video_path.as_posix()}")
-                out, err = ffmpeg.input(video_path.as_posix(), ss=0, loglevel=8).output(
-                    image_save_path.as_posix(), vframes=1, qscale=2).run(
-                    capture_stdout=False, capture_stderr=True, overwrite_output=True, quiet=True)
-                log_ffmpeg_output(out, err)
-            except ffmpeg.Error as ffmpeg_error_exception:
-                log.error(f"ffmpeg error {ffmpeg_error_exception}")
-                log_ffmpeg_output(ffmpeg_error_exception.stdout, ffmpeg_error_exception.stderr, as_error=True)
-            log.info(f'extract_frame_to_image: closed {image_save_path.as_posix()}')
-            return
-        time.sleep(1.0)
-    log.error(f'extract_frame_to_image: failed to find {video_path.as_posix()}, could not extract frame')
+    video_path, offset_seconds = find_nearest_video(camera_config.camera_id, incident_time, camera_config.camera_clip_seconds)
+    if video_path:
+        try:
+            log.info(f"extract_frame_to_image: writing {image_save_path.as_posix()} from {video_path.as_posix()} {offset_seconds=}")
+            out, err = ffmpeg.input(video_path.as_posix(), ss=offset_seconds, loglevel=8).output(
+                image_save_path.as_posix(), vframes=1, qscale=2).run(
+                capture_stdout=False, capture_stderr=True, overwrite_output=True, quiet=True)
+            log_ffmpeg_output(out, err)
+        except ffmpeg.Error as ffmpeg_error_exception:
+            log.error(f"ffmpeg error {ffmpeg_error_exception}")
+            log_ffmpeg_output(ffmpeg_error_exception.stdout, ffmpeg_error_exception.stderr, as_error=True)
+        log.info(f'extract_frame_to_image: closed {image_save_path.as_posix()}')
+    else:
+        log.error(f'extract_frame_to_image: failed to find video for {incident_time=}, could not extract frame')
 
 
 def save_image(camera_config: CameraConfig, rtsp_uri: str, detections: Dict[str, datetime], grab_stills_from_video: bool):
@@ -369,30 +367,30 @@ def save_image(camera_config: CameraConfig, rtsp_uri: str, detections: Dict[str,
     camera_id = camera_config.camera_id
     save_path = generate_save_path(camera_id, incident_time, IMAGE_DIR, 'jpg')
     if save_path.exists():
-        log.error(f'Skipping save. Save file already exists: {save_path}')
+        log.error(f'save_image: Skipping save. Save file already exists: {save_path}')
         return
     try:
+        log.info(f"save_image: saving {save_path.as_posix()} {grab_stills_from_video=}")
         if grab_stills_from_video:
             extract_frame_to_image(camera_config, incident_time, save_path)
             return
-        log.info(f'writing {save_path.as_posix()}')
         time.sleep(0.5)
         out, err = ffmpeg.input(rtsp_uri, loglevel=8, rtsp_transport='tcp').output(
             filename=save_path.as_posix(), vframes=1,
             loglevel=8).run(capture_stdout=False, capture_stderr=True, overwrite_output=True, quiet=True)
         log_ffmpeg_output(out, err)
     except ffmpeg.Error as ffmpeg_error_exception:
-        log.error(f"ffmpeg error {ffmpeg_error_exception}")
+        log.error(f"save_image: ffmpeg error {ffmpeg_error_exception}")
         log_ffmpeg_output(ffmpeg_error_exception.stdout, ffmpeg_error_exception.stderr, as_error=True)
         return
-    log.info(f'closed {save_path.as_posix()}')
+    log.info(f'save_image: closed {save_path.as_posix()}')
 
 
 def log_ffmpeg_output(stdout, stderr, as_error: bool=False):
     logger = log.error if as_error else log.info
     if stdout or stderr or as_error:
-        logger(f"ffmpeg: stdout: {stdout.decode('utf-8') if stdout else 'No stdout'}")
-        logger(f"ffmpeg: stderr: {stderr.decode('utf-8') if stderr else 'No stderr'}")
+        logger(f"save_image: ffmpeg: stdout: {stdout.decode('utf-8') if stdout else 'No stdout'}")
+        logger(f"save_image: ffmpeg: stderr: {stderr.decode('utf-8') if stderr else 'No stderr'}")
     pass
 
 
@@ -404,11 +402,19 @@ def generate_save_path(camera_id: str, incident_time: datetime, save_folder: Pat
     return save_path
 
 
+def find_nearest_video(camera_id: str, incident_time: datetime, clip_seconds: int) -> Path:
+    for offset in range(0, clip_seconds):
+        video_path = generate_save_path(camera_id, incident_time - timedelta(seconds=offset), VIDEO_DIR, 'mp4')
+        if video_path.exists():
+            return video_path, offset
+    return None, 0
+
+
 def execute_external_handler(handler_exe: Path, camera_id, relevant_detections: Dict[str, datetime]):
     if os.path.exists(handler_exe) and os.access(handler_exe, os.F_OK | os.X_OK) and not os.path.isdir(handler_exe):
-        detections_as_str = [f'{k}/{dt.strftime("%Y%m%d-%H%M%S")}' for k, dt in relevant_detections.items()]
-        log.info(f'Executing handler {handler_exe.as_posix()} {camera_id} {detections_as_str}')
-        Popen([handler_exe.as_posix(), camera_id,] + detections_as_str)
+        detection_args = [f'{k}/{dt.strftime("%Y%m%d-%H%M%S")}' for k, dt in relevant_detections.items()]
+        log.info(f'Executing handler {handler_exe.as_posix()} {camera_id} {detection_args}')
+        Popen([handler_exe.as_posix(), camera_id,] + detection_args)
     else:
         log.critical(f'execute_external_handler: Event executable {handler_exe.as_posix()} is not runnable.')
 
@@ -438,11 +444,7 @@ class EventHandler(ABC):
         return rtsp_uri
 
     def has_been_handled(self, detections: Dict[str, datetime]):  # has this time been handled already
-        # If any event in the unexpired detections has been handled, then they all have
-        for event, etime in detections.items():
-            if event in self.handled and self.handled[event] == etime:
-                return True
-        return False
+        return all(item in self.handled.items() for item in detections.items())
 
     def mark_as_handled(self, detections: Dict[str, datetime]):
         for event, etime in detections.items():
@@ -452,7 +454,7 @@ class EventHandler(ABC):
     async def handle_events(self):
         pass
 
-# Loops checking for events and writes out a video for any specified as notable
+# Loops checking for events and writes out media for any specified as notable
 class MediaSaverEventHandler(EventHandler):
 
     def __init__(self, target_camera: TargetCamera, stream_name):
@@ -485,7 +487,7 @@ class MediaSaverEventHandler(EventHandler):
                     if log.isEnabledFor(logging.DEBUG):   # Note the URI now contains the password!
                         log.debug(f'{self.log_name}: Full URI for {self.stream_name}: {rtsp_uri=}')
                     log.info(f'{self.log_name}: Successfully connected to {self.stream_name}')
-                    while not self.stop_requested:
+                    while not self.stop_requested:  # Loop handling additions to detections made by NotificationPuller
                         # Only save media on relevant non-False events.
                         if relevant_detections := {
                             event_name: etime for event_name, etime in self.target_camera.detections.items()
@@ -494,6 +496,7 @@ class MediaSaverEventHandler(EventHandler):
                         }:
                             loop = asyncio.get_running_loop()
                             if not self.has_been_handled(relevant_detections):
+                                log.info(f"{self.log_name}: unhandled {relevant_detections=}")
                                 with ProcessPoolExecutor() as pool:
                                     await loop.run_in_executor(
                                         pool,
