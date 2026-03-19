@@ -13,7 +13,7 @@ from typing import List
 log = logging.getLogger('onvifemail')
 
 def send_mail(send_from: str, send_to: List[str],
-              subject: str, message: str, jpeg_filename: Path,
+              subject: str, message: str, jpeg_filenames: List[Path],
               server="localhost", port=587, username='', password='', add_legal_stuff=False):
     msg = EmailMessage()
     msg['From'] = send_from
@@ -21,7 +21,10 @@ def send_mail(send_from: str, send_to: List[str],
     msg['Subject'] = subject
     msg['Date'] = formatdate(localtime=True)
 
-    attachment_cid = make_msgid()
+    attachment_cid = {}
+    img_text = ''
+    for i, jpeg_filename in enumerate(jpeg_filenames):
+        img_text += f'<img src="cid:image{i}"/>'
 
     boilerplate = """
      Please notify the sender immediately by e-mail if you have 
@@ -34,13 +37,16 @@ def send_mail(send_from: str, send_to: List[str],
     msg.set_content(f'{message}\n\n{boilerplate}')
     html_message = message.replace("\n","<br/>")
     msg.add_alternative(f'<html><body><br/><b>{html_message}</b><br/><br/>'
-                        f'<img src="cid:{attachment_cid}"/>'
+                        f'{img_text}'
                         f'<br/><br/>{boilerplate}</body></html>',
                         'html')
 
-    if jpeg_filename:
+    for i, jpeg_filename in enumerate(jpeg_filenames):
         with open(jpeg_filename, "rb") as fd:
-            msg.get_payload()[1].add_related(fd.read(), 'image', 'jpeg', cid=attachment_cid)
+            msg.get_payload()[1].add_related(fd.read(), 'image', 'jpeg',
+                                             cid=f'<image{i}>',
+                                             filename=jpeg_filename.name)
+                                             #disposition='inline')  # Might be needed for some clients?
 
     smtp_connection = smtplib.SMTP(host=server, port=port)
     smtp_connection.starttls()
@@ -71,26 +77,29 @@ def main():
         message = (f'Camera: {camera_id}\n\n' +
                    '\n'.join([ f'{k.removeprefix("Is")} detected at {v}'
                               for k, v in detections.items()]))
-        when_str = list(detections.values())[0]
-        attach_filename = None
-        jpeg_path = Path.home() / 'onvifeye' / 'images' / camera_id
-        jpeg_filename = jpeg_path / f'{when_str}.jpg'
-        log.info(f"looking for {jpeg_filename.as_posix()}")
-        # print(f"looking for {jpeg_filename.as_posix()}")
-        for _ in range(10):  # give up after 10 seconds
+        attachments = []
+        for _, when_str in detections.items():
+            #when_str = list(detections.values())[0]
+            jpeg_path = Path.home() / 'onvifeye' / 'images' / camera_id
+            jpeg_filename = jpeg_path / f'{when_str}.jpg'
+            if jpeg_filename in attachments:
+                continue  # Already done
+            log.info(f"looking for {jpeg_filename.as_posix()}")
+            # print(f"looking for {jpeg_filename.as_posix()}")
+            for _ in range(10):  # give up after 10 seconds
+                if jpeg_filename.exists():
+                    break
+                time.sleep(1)
+            if not jpeg_filename.exists():  # May be multiple events, look for something close
+                for jpeg_filename in sorted(jpeg_path.glob(f"{when_str[:-2]}*.jpg"), reverse=True):
+                    log.info(f"found close match {jpeg_filename.as_posix()}")
+                    message += f"\nFound close match {jpeg_filename.as_posix()}"
             if jpeg_filename.exists():
-                break
-            time.sleep(1)
-        if not jpeg_filename.exists():  # May be multiple events, look for something close
-            for jpeg_filename in sorted(jpeg_path.glob(f"{when_str[:-2]}*.jpg"), reverse=True):
-                log.info(f"found close match {jpeg_filename.as_posix()}")
-                message += f"\nFound close match {jpeg_filename.as_posix()}"
-        if jpeg_filename.exists():
-            attach_filename = jpeg_filename
-        else:
-            message += f"\nCould not find {jpeg_filename}"
+                attachments.append(jpeg_filename)
+            else:
+                message += f"\nCould not find {jpeg_filename}"
         #print(attach_filename)
-        send_mail(**email_config, subject=subject, message=message, jpeg_filename=attach_filename)
+        send_mail(**email_config, subject=subject, message=message, jpeg_filenames=attachments)
 
 if __name__ == '__main__':
     main()

@@ -350,14 +350,17 @@ def extract_frame_to_image(camera_config: CameraConfig, incident_time: datetime,
     if video_path:
         try:
             log.info(f"extract_frame_to_image: writing {image_save_path.as_posix()} from {video_path.as_posix()} {offset_seconds=}")
-            out, err = ffmpeg.input(video_path.as_posix(), ss=offset_seconds, loglevel=8).output(
-                image_save_path.as_posix(), vframes=1, qscale=2).run(
+            out, err = ffmpeg.input(video_path.as_posix(), loglevel=8).output(
+                image_save_path.as_posix(), vframes=1, ss=offset_seconds, qscale=2).run(
                 capture_stdout=False, capture_stderr=True, overwrite_output=True, quiet=True)
             log_ffmpeg_output(out, err)
+            if not image_save_path.exists():
+                log.error(f"ffmpeg failed to write {image_save_path.as_posix()}")
         except ffmpeg.Error as ffmpeg_error_exception:
             log.error(f"ffmpeg error {ffmpeg_error_exception}")
             log_ffmpeg_output(ffmpeg_error_exception.stdout, ffmpeg_error_exception.stderr, as_error=True)
-        log.info(f'extract_frame_to_image: closed {image_save_path.as_posix()}')
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug(f'extract_frame_to_image: closed {image_save_path.as_posix()}')
     else:
         log.error(f'extract_frame_to_image: failed to find video for {incident_time=}, could not extract frame')
 
@@ -446,6 +449,10 @@ class EventHandler(ABC):
     def has_been_handled(self, detections: Dict[str, datetime]):  # has this time been handled already
         return all(item in self.handled.items() for item in detections.items())
 
+    def not_yet_handled(self, detections: Dict[str, datetime]) -> Dict[str, datetime]:
+        return {event_type:event_time for event_type, event_time in detections.items()
+                if (event_type, event_time) not in self.handled.items()}
+
     def mark_as_handled(self, detections: Dict[str, datetime]):
         for event, etime in detections.items():
             self.handled[event] = etime
@@ -495,13 +502,13 @@ class MediaSaverEventHandler(EventHandler):
                                and self.target_camera.config.is_event_targeted(event_name)
                         }:
                             loop = asyncio.get_running_loop()
-                            if not self.has_been_handled(relevant_detections):
-                                log.info(f"{self.log_name}: unhandled {relevant_detections=}")
+                            if to_do := self.not_yet_handled(relevant_detections):
+                                log.info(f"{self.log_name}: not yet handled {to_do=}")
                                 with ProcessPoolExecutor() as pool:
                                     await loop.run_in_executor(
                                         pool,
-                                        self.get_saver_function(rtsp_uri, relevant_detections))
-                            self.mark_as_handled(relevant_detections)  # update
+                                        self.get_saver_function(rtsp_uri, to_do))
+                            self.mark_as_handled(to_do)  # update
                         await asyncio.sleep(0.1)
                     previous_rerr = None
                 else:
