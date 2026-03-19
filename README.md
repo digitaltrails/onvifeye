@@ -130,6 +130,7 @@ properties that differ from the defaults, for example:
         "IsCar"
     ],
     "camera_event_exec": "/home/michael/bin/onvifeye-email.py",
+    "camera_event_exec_delay_seconds": 0,
     "camera_save_folder": "/home/michael/onvifeye",
     "camera_grab_stills_from_video": true
 }
@@ -165,7 +166,8 @@ the _Tapo H500_ hub, not the cameras.
 The  setting `camera_grab_stills_from_video` defaults to `true`.  This setting forces 
 the script to grab still images from videos saved from `camera_stream_name`. This is
 preferable to grabbing them from the `camera_stills_stream_name` because it's likely 
-to work for more cameras, plus the images are grabbed full size.  If set to `false` 
+to work for more cameras, the images are grabbed full size, and the frame-grab
+can be offset to match the time of the event.  If set to `false` 
 the images will be grabbed from the camera stills stream.
 
 Run with the configured config files, for example:
@@ -198,8 +200,8 @@ the contents should resemble:
 ```
 
 Make the email script executable and check its location is properly set in
-the camera config file (see the example camera config file above), then start
-or restart the main script:
+the camera config file's `camera_event_exec` setting (see the example camera config file above). 
+Then start or restart the main script:
 
 ```
 # set permissions:
@@ -208,6 +210,13 @@ chmod u+x /where/ever/you/put/onvifeye-email.py
 # Restart
 ~/onvif-venv/bin/python3 onvifeye.py
 ```
+
+The camera config file may also specify a `camera_event_exec_delay_seconds`. 
+Setting a non-zero value results in the events occurring over the delay 
+period being gathered into a single exec.  
+The delay must be set to less than the normal expiry time of events, 
+which defaults to 60 seconds.  In respect to the email script, setting
+a delay would result in multiple events and images being sent in one email.
 
 The email script can also be tested stand alone, for example:
 ```commandline
@@ -294,6 +303,19 @@ journalctl --user --boot --follow
 Issues
 ------
 
+Due to time delays receiving and processing ONVIF notification, the 
+script might not capture video for the very beginning of an event.
+
+I expect that cameras other than the C225/C125/C320 may report detection events 
+differently.  So far this hasn't been the case, but very few cameras
+have been tested.
+
+The json parsing of config files doesn't produce very friendly error
+messages when the syntax is wrong.
+
+The remaining issues seem to be resolved, but are still noted here
+in case they resurface over extended periods of use.
+
 A camera going offline may sometimes cause the script to stop receiving
 events after it comes back online. I think
 this was an error in my code. In the event of http communication errors, I 
@@ -314,15 +336,7 @@ at startup and restored at exit. This should hopefully solve the
 issue if/when in occurs (I haven't seen a repeat of this issue since putting
 the fix in place).
 
-Due to time delays receiving and processing ONVIF notification, the 
-script might not capture video for the very beginning of an event.
 
-I expect that cameras other than the C225/C125 may report detection events 
-differently.  The code may need to be enhanced to abstract/separate the 
-detection-parsing so it is determined by camera-model.
-
-The json parsing of config files doesn't produce very friendly error
-messages when the syntax is wrong.
 
 Authors
 -------

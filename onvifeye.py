@@ -142,6 +142,7 @@ class CameraConfig(object):
                  camera_clip_seconds = 30,
                  camera_target_events = ('IsPeople', 'IsCar'),
                  camera_event_exec = '',
+                 camera_event_exec_delay_seconds=0,
                  camera_save_folder = DATA_DIR.as_posix(),
                  camera_grab_stills_from_video = True):
         super().__init__()
@@ -156,6 +157,7 @@ class CameraConfig(object):
         self.camera_stills_stream_name = camera_stills_stream_name
         self.camera_clip_seconds = camera_clip_seconds
         self.camera_event_exec = camera_event_exec
+        self.camera_event_exec_delay_seconds = camera_event_exec_delay_seconds
         self.camera_save_folder = camera_save_folder
         self.camera_grab_stills_from_video = camera_grab_stills_from_video
 
@@ -559,21 +561,33 @@ class EventExecHandler(EventHandler):
     def __init__(self, target_camera: TargetCamera, handler_exe: Path):
         super().__init__(target_camera)
         self.handler_exe = handler_exe
+        self.delay_seconds = self.target_camera.config.camera_event_exec_delay_seconds
+        if self.delay_seconds:
+            log.info(f'EventExecHandler for {self.target_camera.config.camera_id} subject to delay of {self.delay_seconds} seconds')
 
     async def handle_events(self):
+        current_delay = self.delay_seconds
         while not self.stop_requested:
             if relevant_detections := {event: etime
                                        for event, etime in self.target_camera.detections.items()
                                        if self.target_camera.config.is_event_targeted(event)}:
                 if not self.all_been_handled(relevant_detections):
-                    loop = asyncio.get_running_loop()
-                    with ProcessPoolExecutor() as pool:
-                        await loop.run_in_executor(
-                            pool,
-                            partial(execute_external_handler, self.handler_exe,
-                                    self.target_camera.config.camera_id,
-                                    relevant_detections))
-                    self.mark_as_handled(relevant_detections)
+                    if current_delay > 0:  # sleep and see if more events pile in
+                        for _ in range(current_delay):
+                            if self.stop_requested:
+                                break
+                            await asyncio.sleep(1.0)
+                        current_delay = 0  # don't delay any longer
+                    else:
+                        loop = asyncio.get_running_loop()
+                        with ProcessPoolExecutor() as pool:
+                            await loop.run_in_executor(
+                                pool,
+                                partial(execute_external_handler, self.handler_exe,
+                                        self.target_camera.config.camera_id,
+                                        relevant_detections))
+                        self.mark_as_handled(relevant_detections)
+                        current_delay = self.delay_seconds
             await asyncio.sleep(0.1)
 
 
