@@ -5,7 +5,6 @@ import smtplib
 import sys
 import time
 from email.message import EmailMessage
-from email.utils import make_msgid
 from email.utils import formatdate
 from pathlib import Path
 from typing import List

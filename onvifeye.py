@@ -311,6 +311,8 @@ class NotificationPuller:
 
 
 def save_video(camera_config: CameraConfig, rtsp_uri: str, clip_seconds: int, detections: Dict[str, datetime]):
+    # Will only start new video if first relevant_detection is not yet being recorded,
+    # that effectively stops any new additional recordings until the first relevant_detection expires.
     incident_time = list(detections.values())[0]
     save_path = generate_save_path(camera_config.camera_id, incident_time, VIDEO_DIR, 'mp4')
     log.info(f"writing {save_path.as_posix()}")
@@ -366,27 +368,36 @@ def extract_frame_to_image(camera_config: CameraConfig, incident_time: datetime,
 
 
 def save_image(camera_config: CameraConfig, rtsp_uri: str, detections: Dict[str, datetime], grab_stills_from_video: bool):
-    incident_time = list(detections.values())[0]
-    camera_id = camera_config.camera_id
-    save_path = generate_save_path(camera_id, incident_time, IMAGE_DIR, 'jpg')
-    if save_path.exists():
-        log.error(f'save_image: Skipping save. Save file already exists: {save_path}')
-        return
-    try:
-        log.info(f"save_image: saving {save_path.as_posix()} {grab_stills_from_video=}")
-        if grab_stills_from_video:
-            extract_frame_to_image(camera_config, incident_time, save_path)
-            return
+    if grab_stills_from_video:  # Grab a frame for each incident time
+        for detection, incident_time in detections.items():
+            camera_id = camera_config.camera_id
+            save_path = generate_save_path(camera_id, incident_time, IMAGE_DIR, 'jpg')
+            if save_path.exists():
+                log.info(f'save_image: extract - skipping {detection} save. Save file already exists: {save_path}')
+            else:
+                try:
+                    log.info(f"save_image: extract frame {save_path.as_posix()} {grab_stills_from_video=}")
+                    extract_frame_to_image(camera_config, incident_time, save_path)
+                except ffmpeg.Error as ffmpeg_error_exception:
+                    log.error(f"save_image: extract ffmpeg error {ffmpeg_error_exception}")
+                    log_ffmpeg_output(ffmpeg_error_exception.stdout, ffmpeg_error_exception.stderr, as_error=True)
+    else:  # Grab one frame from start of incident
         time.sleep(0.5)
-        out, err = ffmpeg.input(rtsp_uri, loglevel=8, rtsp_transport='tcp').output(
-            filename=save_path.as_posix(), vframes=1,
-            loglevel=8).run(capture_stdout=False, capture_stderr=True, overwrite_output=True, quiet=True)
-        log_ffmpeg_output(out, err)
-    except ffmpeg.Error as ffmpeg_error_exception:
-        log.error(f"save_image: ffmpeg error {ffmpeg_error_exception}")
-        log_ffmpeg_output(ffmpeg_error_exception.stdout, ffmpeg_error_exception.stderr, as_error=True)
-        return
-    log.info(f'save_image: closed {save_path.as_posix()}')
+        camera_id = camera_config.camera_id
+        save_path = generate_save_path(camera_id, detections.values()[0], IMAGE_DIR, 'jpg')
+        if save_path.exists():
+            log.info(f'save_image: Skipping save. Save file already exists: {save_path}')
+            return
+        try:
+            log.info(f"save_image: rtsp grab frame {save_path.as_posix()} {grab_stills_from_video=}")
+            out, err = ffmpeg.input(rtsp_uri, loglevel=8, rtsp_transport='tcp').output(
+                filename=save_path.as_posix(), vframes=1,
+                loglevel=8).run(capture_stdout=False, capture_stderr=True, overwrite_output=True, quiet=True)
+            log_ffmpeg_output(out, err)
+        except ffmpeg.Error as ffmpeg_error_exception:
+            log.error(f"save_image: ffmpeg error {ffmpeg_error_exception}")
+            log_ffmpeg_output(ffmpeg_error_exception.stdout, ffmpeg_error_exception.stderr, as_error=True)
+            return
 
 
 def log_ffmpeg_output(stdout, stderr, as_error: bool=False):
@@ -414,12 +425,12 @@ def find_nearest_video(camera_id: str, incident_time: datetime, clip_seconds: in
 
 
 def execute_external_handler(handler_exe: Path, camera_id, relevant_detections: Dict[str, datetime]):
+    detection_args = [f'{k}/{dt.strftime("%Y%m%d-%H%M%S")}' for k, dt in relevant_detections.items()]
     if os.path.exists(handler_exe) and os.access(handler_exe, os.F_OK | os.X_OK) and not os.path.isdir(handler_exe):
-        detection_args = [f'{k}/{dt.strftime("%Y%m%d-%H%M%S")}' for k, dt in relevant_detections.items()]
         log.info(f'Executing handler {handler_exe.as_posix()} {camera_id} {detection_args}')
         Popen([handler_exe.as_posix(), camera_id,] + detection_args)
     else:
-        log.critical(f'execute_external_handler: Event executable {handler_exe.as_posix()} is not runnable.')
+        log.critical(f'execute_external_handler: Event executable {handler_exe.as_posix()} is not runnable {camera_id} {detection_args}.')
 
 
 class EventHandler(ABC):
@@ -446,8 +457,11 @@ class EventHandler(ABC):
                 log.info(f'EventHandler: {self.target_camera.config.camera_id} skipped {profile.Name=} RTSP {uri_data.Uri=}')
         return rtsp_uri
 
-    def has_been_handled(self, detections: Dict[str, datetime]):  # has this time been handled already
+    def all_been_handled(self, detections: Dict[str, datetime]):  # have all been handled already
         return all(item in self.handled.items() for item in detections.items())
+
+    def any_been_handled(self, detections: Dict[str, datetime]):  # have any been handled already
+        return any(item in self.handled.items() for item in detections.items())
 
     def not_yet_handled(self, detections: Dict[str, datetime]) -> Dict[str, datetime]:
         return {event_type:event_time for event_type, event_time in detections.items()
@@ -502,13 +516,12 @@ class MediaSaverEventHandler(EventHandler):
                                and self.target_camera.config.is_event_targeted(event_name)
                         }:
                             loop = asyncio.get_running_loop()
-                            if to_do := self.not_yet_handled(relevant_detections):
-                                log.info(f"{self.log_name}: not yet handled {to_do=}")
+                            if not self.all_been_handled(relevant_detections):
                                 with ProcessPoolExecutor() as pool:
                                     await loop.run_in_executor(
                                         pool,
-                                        self.get_saver_function(rtsp_uri, to_do))
-                            self.mark_as_handled(to_do)  # update
+                                        self.get_saver_function(rtsp_uri, relevant_detections))
+                            self.mark_as_handled(relevant_detections)  # update
                         await asyncio.sleep(0.1)
                     previous_rerr = None
                 else:
@@ -536,6 +549,7 @@ class VideoWriter(MediaSaverEventHandler):
 class ImageWriter(MediaSaverEventHandler):
 
     def get_saver_function(self, rtsp_uri: str, relevant_detections: Dict[str, datetime]) -> Callable:
+        # Will capture a new frame for as yet unhandled
         return partial(save_image, self.target_camera.config, rtsp_uri, relevant_detections,
                        self.target_camera.config.camera_grab_stills_from_video)
 
@@ -551,7 +565,7 @@ class EventExecHandler(EventHandler):
             if relevant_detections := {event: etime
                                        for event, etime in self.target_camera.detections.items()
                                        if self.target_camera.config.is_event_targeted(event)}:
-                if not self.has_been_handled(relevant_detections):
+                if not self.all_been_handled(relevant_detections):
                     loop = asyncio.get_running_loop()
                     with ProcessPoolExecutor() as pool:
                         await loop.run_in_executor(
