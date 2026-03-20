@@ -170,6 +170,13 @@ to work for more cameras, the images are grabbed full size, and the frame-grab
 can be offset to match the time of the event.  If set to `false` 
 the images will be grabbed from the camera stills stream.
 
+The setting `camera_event_exec_delay_seconds` defaults to zero seconds (no delay). 
+Setting a delay reduces the number of exec's of the `camera_event_exec` executable.
+Events that occur over the delay-period are gathered and passed to a single 
+exec (one argument for each event).  The delay must be set to less than the normal
+expiry-time of events (60 seconds).  In respect to the email script, setting a 
+delay would result in multiple events and images being sent in one email.
+
 Run with the configured config files, for example:
 
 ```
@@ -210,14 +217,6 @@ chmod u+x /where/ever/you/put/onvifeye-email.py
 # Restart
 ~/onvif-venv/bin/python3 onvifeye.py
 ```
-
-The camera config file may also specify a `camera_event_exec_delay_seconds`. 
-Setting a non-zero value results in the events occurring over the delay 
-period being gathered into a single exec.  
-The delay must be set to less than the normal expiry time of events, 
-which defaults to 60 seconds.  In respect to the email script, setting
-a delay would result in multiple events and images being sent in one email.
-
 The email script can also be tested stand alone, for example:
 ```commandline
 # Create a dummy image for a date-time
