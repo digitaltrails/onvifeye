@@ -316,7 +316,7 @@ def save_video(camera_config: CameraConfig, rtsp_uri: str, clip_seconds: int, de
     # Will only start new video if first relevant_detection is not yet being recorded,
     # that effectively stops any new additional recordings until the first relevant_detection expires.
     incident_time = list(detections.values())[0]
-    save_path = generate_save_path(camera_config.camera_id, incident_time, VIDEO_DIR, 'mp4')
+    save_path = generate_save_path(camera_config.camera_id, datetime.now(), VIDEO_DIR, 'mp4')
     log.info(f"writing {save_path.as_posix()}")
     save_path.parent.parent.mkdir(exist_ok=True)
     save_path.parent.mkdir(exist_ok=True)
@@ -332,6 +332,7 @@ def save_video(camera_config: CameraConfig, rtsp_uri: str, clip_seconds: int, de
         log.info(f"Waiting on  {process.pid=} {timeout_seconds=}")
         out, err = process.communicate(timeout=timeout_seconds)
         log_ffmpeg_output(out, err)
+        log.info(f"closed {save_path.as_posix()}")
     except subprocess.TimeoutExpired as ffmpeg_error_exception:
         log.error(f"May not have saved {save_path.as_posix()} due to ffmpeg timeout error {ffmpeg_error_exception}")
         return
@@ -344,7 +345,6 @@ def save_video(camera_config: CameraConfig, rtsp_uri: str, clip_seconds: int, de
             execute_external_handler(Path(camera_config.camera_event_exec),
                                      camera_config.camera_id,
                                      {VIDEO_ENDED_SYNTHETIC_EVENT: datetime.now(), })
-    log.info(f"closed {save_path.as_posix()}")
 
 
 def extract_frame_to_image(camera_config: CameraConfig, incident_time: datetime, image_save_path: Path):
@@ -419,10 +419,11 @@ def generate_save_path(camera_id: str, incident_time: datetime, save_folder: Pat
 
 
 def find_nearest_video(camera_id: str, incident_time: datetime, clip_seconds: int) -> Path:
-    for offset in range(0, clip_seconds):
+    # Might actually be in a clip starting around this time, so start at offset-1.
+    for offset in range(-1, clip_seconds):
         video_path = generate_save_path(camera_id, incident_time - timedelta(seconds=offset), VIDEO_DIR, 'mp4')
         if video_path.exists():
-            return video_path, offset
+            return video_path, max(offset, 0)  # zero is the minimum usage offset
     return None, 0
 
 
@@ -518,11 +519,11 @@ class MediaSaverEventHandler(EventHandler):
                                and self.target_camera.config.is_event_targeted(event_name)
                         }:
                             loop = asyncio.get_running_loop()
-                            if not self.all_been_handled(relevant_detections):
+                            if to_do := self.not_yet_handled(relevant_detections):
                                 with ProcessPoolExecutor() as pool:
                                     await loop.run_in_executor(
                                         pool,
-                                        self.get_saver_function(rtsp_uri, relevant_detections))
+                                        self.get_saver_function(rtsp_uri, to_do))
                             self.mark_as_handled(relevant_detections)  # update
                         await asyncio.sleep(0.1)
                     previous_rerr = None
